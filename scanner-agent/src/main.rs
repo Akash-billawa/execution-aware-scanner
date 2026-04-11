@@ -11,19 +11,30 @@ mod sbom;
 mod state;
 mod webhook;
 
-// eBPF modules only available on Linux with ebpf feature
-#[cfg(all(feature = "ebpf", target_os = "linux"))]
+// eBPF modules only available with ebpf feature
+#[cfg(feature = "ebpf")]
 mod bpf_loader;
-#[cfg(all(feature = "ebpf", target_os = "linux"))]
+#[cfg(feature = "ebpf")]
 mod event_consumer;
-#[cfg(all(feature = "ebpf", target_os = "linux"))]
+#[cfg(feature = "ebpf")]
 mod tc_enforcer;
 
 // Stub modules for non-eBPF builds
-#[cfg(not(all(feature = "ebpf", target_os = "linux")))]
-mod event_consumer_stub;
-#[cfg(not(all(feature = "ebpf", target_os = "linux")))]
-mod tc_enforcer_stub;
+#[cfg(not(feature = "ebpf"))]
+mod event_consumer {
+    pub struct EventConsumer;
+    pub struct ConsumerStats {
+        pub events_received: u64,
+        pub events_dropped: u64,
+        pub events_filtered: u64,
+        pub batches_processed: u64,
+    }
+}
+#[cfg(not(feature = "ebpf"))]
+mod tc_enforcer {
+    pub struct TcEnforcer;
+    pub struct ThreatIntelFeed;
+}
 
 use axum::{extract::State, response::IntoResponse, routing::get, Router};
 use clap::Parser;
@@ -42,15 +53,15 @@ use state::StateStore;
 use std::collections::BTreeMap;
 use std::sync::Arc;
 
-// eBPF types only on Linux
-#[cfg(all(feature = "ebpf", target_os = "linux"))]
+// eBPF types only with ebpf feature
+#[cfg(feature = "ebpf")]
 use event_consumer::EventConsumer;
-#[cfg(all(feature = "ebpf", target_os = "linux"))]
+#[cfg(feature = "ebpf")]
 use tc_enforcer::{TcEnforcer, ThreatIntelFeed};
 
 // Stub types for non-eBPF
-#[cfg(not(all(feature = "ebpf", target_os = "linux")))]
-use tc_enforcer_stub::{TcEnforcer, ThreatIntelFeed};
+#[cfg(not(feature = "ebpf"))]
+use tc_enforcer::{TcEnforcer, ThreatIntelFeed};
 #[cfg(not(all(feature = "ebpf", target_os = "linux")))]
 use event_consumer_stub::{EventConsumer, ConsumerStats};
 

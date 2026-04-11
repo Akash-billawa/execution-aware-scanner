@@ -44,4 +44,5 @@ tokio-test = "0.4"
 
 [build-dependencies]
 tonic-build = "0.13"
+prost-build = "0.13"
 which = "7.0"
