@@ -18,26 +18,28 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      
+
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
-      
+
       - name: Cache cargo
         uses: Swatinem/rust-cache@v2
         with:
           key: linux-${{ hashFiles('**/Cargo.lock') }}
-      
+
       - name: Build scanner-common
         run: cargo build -p scanner-common --release
-      
+
       - name: Build scanner-agent (Linux safe)
         run: cargo build -p scanner-agent --release --no-default-features
-      
+        env:
+          SKIP_PROTO: 1
+
       - name: Run tests
         run: cargo test -p scanner-common --release
         env:
           RUST_LOG: debug
-      
+
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
@@ -54,21 +56,21 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
-      
+
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
-      
+
       - name: Cache cargo
         uses: Swatinem/rust-cache@v2
         with:
           key: ${{ matrix.os }}-${{ hashFiles('**/Cargo.lock') }}
-      
+
       - name: Build scanner-common
         run: cargo build -p scanner-common --release
-      
+
       - name: Build scanner-agent (without eBPF)
         run: cargo build -p scanner-agent --release --no-default-features
-      
+
       - name: Run tests (scanner-common only)
         run: cargo test -p scanner-common --release
 
@@ -78,18 +80,18 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      
+
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt, clippy
-      
+
       - name: Check formatting
         run: cargo fmt --all -- --check
-      
+
       - name: Run clippy (common only)
         run: cargo clippy -p scanner-common -- -D warnings
-      
+
       - name: Run clippy (agent without eBPF)
         run: cargo clippy -p scanner-agent --no-default-features -- -D warnings
 
@@ -99,7 +101,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      
+
       - name: Run cargo audit
         uses: actions-rs/audit-check@v1
         with:
