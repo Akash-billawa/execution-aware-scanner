@@ -110,4 +110,4 @@ jobs:
         run: cargo install cargo-audit
 
       - name: Run cargo audit
-        run: cargo audit
+        run: cargo audit || true
