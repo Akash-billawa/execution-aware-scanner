@@ -1,0 +1,19 @@
+[
+  {
+    "package": "openssl",
+    "version": "3.0.0",
+    "purl": "pkg:generic/openssl@3.0.0",
+    "cves": [
+      {
+        "id": "CVE-2025-1234",
+        "cvss": 9.8,
+        "severity": "Critical",
+        "description": "Example reachable OpenSSL issue"
+      }
+    ],
+    "paths": [
+      "/usr/lib/libssl.so",
+      "/usr/lib/libcrypto.so"
+    ]
+  }
+]

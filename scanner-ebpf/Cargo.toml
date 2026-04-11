@@ -1,0 +1,18 @@
+[package]
+name = "scanner-ebpf"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[lib]
+path = "src/lib.rs"
+
+[dependencies]
+aya-ebpf = "0.1"
+aya-log-ebpf.workspace = true
+
+[profile.dev]
+panic = "abort"
+
+[profile.release]
+panic = "abort"

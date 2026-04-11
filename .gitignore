@@ -1,0 +1,52 @@
+# Rust
+/target/
+**/*.rs.bk
+Cargo.lock
+
+# eBPF
+*.o
+*.elf
+/dist/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+/logs/
+
+# Test artifacts
+/test-results/
+/coverage/
+*.profraw
+
+# Build artifacts
+/build/
+/out/
+
+# Secrets
+.env
+.env.local
+*.pem
+*.key
+
+# Temporary
+tmp/
+temp/
+*.tmp
+
+# Documentation build
+/site/
+/docs/book/
+
+# Helm
+*.tgz
+/charts/*.tgz

@@ -1,0 +1,162 @@
+syntax = "proto3";
+
+package scanner;
+
+option go_package = "github.com/execution-aware-scanner/proto/remediator";
+
+// Remediator service for automated security response
+service Remediator {
+  // Submit a finding for remediation
+  rpc Remediate(RemediationRequest) returns (RemediationResponse);
+  
+  // Apply seccomp profile to workload
+  rpc ApplySeccomp(SeccompProfileRequest) returns (SeccompResponse);
+  
+  // Block network traffic
+  rpc BlockNetwork(BlockRequest) returns (BlockResponse);
+  
+  // Quarantine workload
+  rpc Quarantine(QuarantineRequest) returns (QuarantineResponse);
+  
+  // Get remediation status
+  rpc GetStatus(StatusRequest) returns (StatusResponse);
+  
+  // Stream findings for real-time processing
+  rpc StreamFindings(stream Finding) returns (StreamResponse);
+}
+
+// Threat levels for findings
+enum ThreatLevel {
+  INFO = 0;
+  LOW = 1;
+  MEDIUM = 2;
+  HIGH = 3;
+  CRITICAL = 4;
+}
+
+// Enforcement actions
+enum EnforcementAction {
+  ACTION_NONE = 0;
+  ACTION_NOTIFY = 1;
+  ACTION_BLOCK_EGRESS = 2;
+  ACTION_BLOCK_INGRESS = 3;
+  ACTION_QUARANTINE = 4;
+  ACTION_TERMINATE = 5;
+  ACTION_PATCH = 6;
+}
+
+// Remediation request for a finding
+message RemediationRequest {
+  string finding_id = 1;
+  ThreatLevel threat_level = 2;
+  string workload_id = 3;
+  string namespace = 4;
+  string pod_name = 5;
+  string container_name = 6;
+  string cve_id = 7;
+  float cvss_score = 8;
+  float epss_score = 9;
+  bool is_kev = 10;
+  string package_name = 11;
+  string recommended_action = 12;
+  map<string, string> labels = 13;
+}
+
+// Remediation response
+message RemediationResponse {
+  bool success = 1;
+  string action_taken = 2;
+  string remediation_id = 3;
+  string error_message = 4;
+  EnforcementAction enforcement = 5;
+}
+
+// Seccomp profile request
+message SeccompProfileRequest {
+  string workload_id = 1;
+  string profile_json = 2;
+  string namespace = 3;
+  bool dry_run = 4;
+}
+
+// Seccomp response
+message SeccompResponse {
+  bool applied = 1;
+  string profile_name = 2;
+  string error_message = 3;
+}
+
+// Network block request
+message BlockRequest {
+  string workload_id = 1;
+  string namespace = 2;
+  string direction = 3; // "ingress", "egress", or "both"
+  string reason = 4;
+  int32 duration_sec = 5;
+  repeated string allowed_ips = 6;
+}
+
+// Block response
+message BlockResponse {
+  bool blocked = 1;
+  string block_id = 2;
+  string error_message = 3;
+}
+
+// Quarantine request
+message QuarantineRequest {
+  string workload_id = 1;
+  string namespace = 2;
+  string reason = 3;
+  bool isolate_network = 4;
+  bool isolate_storage = 5;
+  int32 duration_minutes = 6;
+}
+
+// Quarantine response
+message QuarantineResponse {
+  bool quarantined = 1;
+  string quarantine_id = 2;
+  string error_message = 3;
+}
+
+// Status request
+message StatusRequest {
+  string remediation_id = 1;
+}
+
+// Status response
+message StatusResponse {
+  string remediation_id = 1;
+  string status = 2; // "pending", "in_progress", "completed", "failed"
+  string result = 3;
+  int64 started_at = 4;
+  int64 completed_at = 5;
+  string error_message = 6;
+}
+
+// Finding message for streaming
+message Finding {
+  string id = 1;
+  int64 timestamp = 2;
+  string namespace = 3;
+  string pod_name = 4;
+  string container_name = 5;
+  string image = 6;
+  string cve = 7;
+  float cvss = 8;
+  float epss = 9;
+  bool kev = 10;
+  string package = 11;
+  string runtime_disposition = 12;
+  float risk_score = 13;
+  string priority = 14;
+  string recommendation = 15;
+}
+
+// Stream response
+message StreamResponse {
+  bool success = 1;
+  int64 processed = 2;
+  string error_message = 3;
+}

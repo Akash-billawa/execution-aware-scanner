@@ -1,0 +1,45 @@
+apiVersion: v2
+name: execution-aware-scanner
+description: Production-ready eBPF security scanner for Kubernetes
+type: application
+version: 1.0.0
+appVersion: "1.0.0"
+kubeVersion: ">= 1.25.0"
+home: https://github.com/example/execution-aware-scanner
+sources:
+  - https://github.com/example/execution-aware-scanner
+keywords:
+  - ebpf
+  - security
+  - vulnerability
+  - scanning
+  - kubernetes
+  - monitoring
+maintainers:
+  - name: Security Team
+    email: security@example.com
+dependencies:
+  - name: prometheus
+    version: "25.0.*"
+    repository: "https://prometheus-community.github.io/helm-charts"
+    condition: prometheus.enabled
+    tags:
+      - monitoring
+  - name: grafana
+    version: "7.0.*"
+    repository: "https://grafana.github.io/helm-charts"
+    condition: grafana.enabled
+    tags:
+      - monitoring
+  - name: cert-manager
+    version: "1.13.*"
+    repository: "https://charts.jetstack.io"
+    condition: cert-manager.enabled
+    tags:
+      - security
+annotations:
+  artifacthub.io/license: Apache-2.0
+  artifacthub.io/prerelease: "false"
+  artifacthub.io/signKey: |
+    fingerprint: REPLACE_WITH_ACTUAL_FINGERPRINT
+    url: https://keybase.io/example/pgp_keys.asc

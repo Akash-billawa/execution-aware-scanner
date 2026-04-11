@@ -1,0 +1,239 @@
+{{/* vim: set filetype=mustache: */}}
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: {{ include "execution-aware-scanner.fullname" . }}
+  labels:
+    {{- include "execution-aware-scanner.labels" . | nindent 4 }}
+spec:
+  selector:
+    matchLabels:
+      {{- include "execution-aware-scanner.selectorLabels" . | nindent 6 }}
+  {{- with .Values.updateStrategy }}
+  updateStrategy:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+  template:
+    metadata:
+      labels:
+        {{- include "execution-aware-scanner.selectorLabels" . | nindent 8 }}
+      annotations:
+        checksum/config: {{ include (print $.Template.BasePath "/configmap.yaml") . | sha256sum }}
+        checksum/ebpf: {{ include (print $.Template.BasePath "/configmap-ebpf.yaml") . | sha256sum }}
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "{{ .Values.metrics.port }}"
+        prometheus.io/path: "{{ .Values.metrics.path }}"
+    spec:
+      {{- with .Values.scanner.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.scanner.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.scanner.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- if .Values.priorityClassName }}
+      priorityClassName: {{ .Values.priorityClassName }}
+      {{- end }}
+      hostPID: true
+      hostNetwork: false
+      {{- if .Values.serviceAccount.create }}
+      serviceAccountName: {{ include "execution-aware-scanner.fullname" . }}
+      {{- else }}
+      serviceAccountName: {{ .Values.serviceAccount.name }}
+      {{- end }}
+      terminationGracePeriodSeconds: {{ .Values.terminationGracePeriodSeconds }}
+      securityContext:
+        fsGroup: 65532
+      initContainers:
+        {{- if .Values.ebpf.programs.lsm }}
+        - name: check-lsm
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          command: ['sh', '-c', 'cat /sys/kernel/security/lsm | grep -q bpf || exit 0']
+          securityContext:
+            privileged: false
+            capabilities:
+              drop:
+                - ALL
+          resources:
+            limits:
+              cpu: 100m
+              memory: 64Mi
+        {{- end }}
+        - name: load-ebpf
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          command: ['sh', '-c', 'cp /opt/scanner/scanner-ebpf.o /host/scanner/ || true']
+          volumeMounts:
+            - name: scanner-state
+              mountPath: /host/scanner
+          resources:
+            limits:
+              cpu: 100m
+              memory: 64Mi
+      containers:
+        - name: scanner-agent
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          {{- with .Values.probes.startup }}
+          {{- if .enabled }}
+          startupProbe:
+            httpGet:
+              path: /health
+              port: metrics
+            initialDelaySeconds: {{ .initialDelaySeconds }}
+            periodSeconds: {{ .periodSeconds }}
+            failureThreshold: {{ .failureThreshold }}
+          {{- end }}
+          {{- end }}
+          {{- with .Values.probes.liveness }}
+          {{- if .enabled }}
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: metrics
+            initialDelaySeconds: {{ .initialDelaySeconds }}
+            periodSeconds: {{ .periodSeconds }}
+            timeoutSeconds: {{ .timeoutSeconds }}
+            failureThreshold: {{ .failureThreshold }}
+          {{- end }}
+          {{- end }}
+          {{- with .Values.probes.readiness }}
+          {{- if .enabled }}
+          readinessProbe:
+            httpGet:
+              path: /ready
+              port: metrics
+            initialDelaySeconds: {{ .initialDelaySeconds }}
+            periodSeconds: {{ .periodSeconds }}
+            timeoutSeconds: {{ .timeoutSeconds }}
+            failureThreshold: {{ .failureThreshold }}
+          {{- end }}
+          {{- end }}
+          ports:
+            - name: metrics
+              containerPort: {{ .Values.metrics.port }}
+              protocol: TCP
+          env:
+            - name: RUST_LOG
+              value: {{ .Values.logging.level | quote }}
+            - name: RUST_LOG_FORMAT
+              value: {{ .Values.logging.format | quote }}
+            - name: SCANNER__RUNTIME__NODE_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: spec.nodeName
+            - name: SCANNER__RUNTIME__POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            - name: SCANNER__RUNTIME__POD_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+            - name: SCANNER__RUNTIME__POD_UID
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.uid
+            - name: SCANNER__RUNTIME__SBOM_DIR
+              value: {{ .Values.scanner.sbomDir | quote }}
+            - name: SCANNER__RUNTIME__SECCOMP_OUTPUT_DIR
+              value: {{ .Values.scanner.seccompOutputDir | quote }}
+            - name: SCANNER__BPF__OBJECT_PATH
+              value: {{ .Values.scanner.bpfObjectPath | quote }}
+            - name: SCANNER__RISK__MINIMUM_CVSS
+              value: {{ .Values.risk.minCvss | quote }}
+            - name: SCANNER__RISK__MINIMUM_EPSS
+              value: {{ .Values.risk.minEpss | quote }}
+            - name: SCANNER__INTEL__KEV_URL
+              value: {{ .Values.intel.kev.url | quote }}
+            - name: SCANNER__INTEL__EPSS_URL
+              value: {{ .Values.intel.epss.url | quote }}
+            - name: SCANNER__INTEL__REFRESH_INTERVAL_SECS
+              value: {{ .Values.intel.kev.refreshInterval | regexReplaceAll "[^0-9]" "" | int | mul 3600 | quote }}
+            - name: SCANNER__REMEDIATOR__ENABLED
+              value: {{ .Values.enforcement.enabled | quote }}
+            - name: SCANNER__REMEDIATOR__ENFORCE_CRITICAL
+              value: "true"
+            - name: SCANNER__REMEDIATOR__ENFORCE_HIGH
+              value: "false"
+            - name: SCANNER__REMEDIATOR__AUTO_SECCOMP
+              value: {{ .Values.enforcement.auto.seccomp | quote }}
+            - name: SCANNER__REMEDIATOR__AUTO_QUARANTINE
+              value: {{ .Values.enforcement.auto.quarantine | quote }}
+            - name: SCANNER__EXPORT__ENABLED
+              value: "true"
+            - name: SCANNER__METRICS__BIND_ADDR
+              value: "0.0.0.0:{{ .Values.metrics.port }}"
+            {{- range .Values.env }}
+            - name: {{ .name }}
+              value: {{ .value | quote }}
+            {{- end }}
+          {{- with .Values.scanner.resources }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- with .Values.scanner.securityContext }}
+          securityContext:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          volumeMounts:
+            - name: sys-fs-bpf
+              mountPath: /sys/fs/bpf
+            - name: host-proc
+              mountPath: /host/proc
+              readOnly: true
+            - name: scanner-state
+              mountPath: /var/lib/scanner
+            - name: tmp
+              mountPath: /tmp
+            - name: cache
+              mountPath: /var/cache/scanner
+            {{- if .Values.certificates.enabled }}
+            - name: certs
+              mountPath: /etc/scanner/certs
+              readOnly: true
+            {{- end }}
+      volumes:
+        - name: sys-fs-bpf
+          hostPath:
+            path: /sys/fs/bpf
+            type: Directory
+        - name: host-proc
+          hostPath:
+            path: /proc
+            type: Directory
+        - name: scanner-state
+          hostPath:
+            path: /var/lib/execution-aware-scanner
+            type: DirectoryOrCreate
+        - name: tmp
+          emptyDir:
+            sizeLimit: 100Mi
+        - name: cache
+          emptyDir:
+            sizeLimit: 500Mi
+        {{- if .Values.certificates.enabled }}
+        - name: certs
+          secret:
+            secretName: {{ include "execution-aware-scanner.fullname" . }}-certs
+        {{- end }}
+      {{- with .Values.image.pullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+{{- range .Values.volumes.ebpf.configMap }}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ .name }}
+  labels:
+    {{- include "execution-aware-scanner.labels" $ | nindent 4 }}
+binaryData:
+  scanner-ebpf.o: |
+    {{ $.Files.Get "ebpf/scanner-ebpf.o" | b64enc | nindent 4 }}
+{{- end }}

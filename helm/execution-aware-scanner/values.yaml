@@ -1,0 +1,290 @@
+# Default values for execution-aware-scanner
+
+image:
+  repository: ghcr.io/example/execution-aware-scanner
+  tag: "1.0.0"
+  pullPolicy: IfNotPresent
+  pullSecrets: []
+
+# Scanner configuration
+scanner:
+  # Node selector for scanner DaemonSet
+  nodeSelector: {}
+  
+  # Tolerations for tainted nodes
+  tolerations:
+    - operator: Exists
+      effect: NoSchedule
+    - operator: Exists
+      effect: NoExecute
+  
+  # Affinity rules
+  affinity: {}
+  
+  # Resource limits
+  resources:
+    requests:
+      cpu: 500m
+      memory: 512Mi
+      ephemeral-storage: 1Gi
+    limits:
+      cpu: 2000m
+      memory: 2Gi
+      ephemeral-storage: 5Gi
+  
+  # Security context (non-root, read-only root FS)
+  securityContext:
+    privileged: false
+    allowPrivilegeEscalation: false
+    readOnlyRootFilesystem: true
+    runAsNonRoot: true
+    runAsUser: 65532
+    runAsGroup: 65532
+    capabilities:
+      add:
+        - BPF
+        - PERFMON
+        - NET_ADMIN
+        - SYS_ADMIN
+      drop:
+        - ALL
+  
+  # Configuration paths
+  sbomDir: /var/lib/scanner/sboms
+  seccompOutputDir: /var/lib/scanner/seccomp
+  bpfObjectPath: /opt/scanner/scanner-ebpf.o
+
+# Metrics configuration
+metrics:
+  enabled: true
+  port: 9898
+  path: /metrics
+  serviceMonitor:
+    enabled: true
+    interval: 30s
+    scrapeTimeout: 10s
+    honorLabels: true
+  
+  # PrometheusRule for alerts
+  prometheusRule:
+    enabled: true
+    groups:
+      - name: scanner.rules
+        rules:
+          - alert: ScannerHighEventDropRate
+            expr: |
+              rate(scanner_dropped_events[5m]) / rate(scanner_events_total[5m]) > 0.1
+            for: 5m
+            labels:
+              severity: warning
+            annotations:
+              summary: "Scanner event drop rate is high"
+              description: "{{ $labels.pod }} is dropping more than 10% of events"
+          
+          - alert: ScannerCriticalFinding
+            expr: |
+              scanner_findings_total{priority="Critical"} > 0
+            for: 1m
+            labels:
+              severity: critical
+            annotations:
+              summary: "Critical vulnerability detected"
+              description: "A critical vulnerability has been found in {{ $labels.workload }}"
+
+# eBPF configuration
+ebpf:
+  # Interface for XDP attachment
+  interface: eth0
+  
+  # Ring buffer sizes
+  ringBufferSize: "1048576"  # 1MB
+  
+  # Program types to load
+  programs:
+    tracepoints: true
+    kprobes: true
+    lsm: true
+    xdp: true
+
+# Threat intelligence
+intel:
+  enabled: true
+  
+  # CISA KEV feed
+  kev:
+    url: https://www.cisa.gov/sites/default/files/feeds/known_exploited_vulnerabilities.json
+    refreshInterval: 6h
+  
+  # EPSS API
+  epss:
+    url: https://api.first.org/data/v1/epss
+    refreshInterval: 6h
+
+# Risk engine configuration
+risk:
+  # Minimum thresholds for reporting
+  minCvss: 4.0
+  minEpss: 0.1
+  
+  # EXF score weights
+  weights:
+    cvss: 0.45
+    epss: 0.25
+    kev: 0.15
+    runtime: 0.15
+
+# Enforcement configuration
+enforcement:
+  enabled: true
+  
+  # Auto-remediation settings
+  auto:
+    seccomp: true
+    quarantine: false
+    blockEgress: true
+  
+  # Priority-based actions
+  critical:
+    - generateSeccomp
+    - applySeccomp
+    - blockEgress
+    - notify
+  
+  high:
+    - generateSeccomp
+    - notify
+  
+  medium:
+    - notify
+
+# Webhook export
+webhook:
+  enabled: false
+  endpoints: []
+  # Example:
+  # - name: siem
+  #   url: https://siem.example.com/webhook
+  #   token: "${WEBHOOK_TOKEN}"
+  #   minPriority: High
+  #   batchSize: 10
+
+# Log configuration
+logging:
+  level: info
+  format: json
+  # Additional log destinations
+  additionalOutputs: []
+
+# Service account
+serviceAccount:
+  create: true
+  name: execution-aware-scanner
+  annotations: {}
+
+# RBAC
+rbac:
+  create: true
+
+# Network policy
+networkPolicy:
+  enabled: true
+  ingress:
+    - from:
+        - namespaceSelector: {}
+      ports:
+        - protocol: TCP
+          port: 9898
+  egress:
+    - to:
+        - namespaceSelector: {}
+      ports:
+        - protocol: TCP
+          port: 443
+    - to:
+        - namespaceSelector: {}
+      ports:
+        - protocol: TCP
+          port: 53
+        - protocol: UDP
+          port: 53
+
+# Pod security policy (deprecated, use Pod Security Standards)
+podSecurityPolicy:
+  enabled: false
+
+# Pod Security Standards
+podSecurityContext:
+  enforce: restricted
+  audit: restricted
+  warn: restricted
+
+# Volume mounts
+volumes:
+  bpf:
+    hostPath: /sys/fs/bpf
+    mountPath: /sys/fs/bpf
+  proc:
+    hostPath: /proc
+    mountPath: /host/proc
+    readOnly: true
+  state:
+    hostPath: /var/lib/execution-aware-scanner
+    mountPath: /var/lib/scanner
+    type: DirectoryOrCreate
+  ebpf:
+    configMap:
+      name: scanner-ebpf-bundle
+    mountPath: /opt/scanner
+
+# Health probes
+probes:
+  liveness:
+    enabled: true
+    initialDelaySeconds: 10
+    periodSeconds: 10
+    timeoutSeconds: 5
+    failureThreshold: 3
+  readiness:
+    enabled: true
+    initialDelaySeconds: 5
+    periodSeconds: 5
+    timeoutSeconds: 3
+    failureThreshold: 3
+  startup:
+    enabled: true
+    initialDelaySeconds: 5
+    periodSeconds: 5
+    failureThreshold: 30
+
+# Priority class
+priorityClassName: system-node-critical
+
+# Termination grace period
+terminationGracePeriodSeconds: 30
+
+# Update strategy
+updateStrategy:
+  type: RollingUpdate
+  rollingUpdate:
+    maxUnavailable: 1
+
+# Monitoring integrations
+prometheus:
+  enabled: true
+
+grafana:
+  enabled: true
+  dashboards:
+    - name: execution-aware-scanner
+      default: true
+
+cert-manager:
+  enabled: false
+
+# Testing
+test:
+  enabled: false
+  image:
+    repository: busybox
+    tag: latest
+    pullPolicy: IfNotPresent
