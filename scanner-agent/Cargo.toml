@@ -19,6 +19,7 @@ config.workspace = true
 futures.workspace = true
 k8s-openapi.workspace = true
 kube.workspace = true
+petgraph = "0.6"
 prometheus-client.workspace = true
 reqwest.workspace = true
 scanner-common = { path = "../scanner-common" }
