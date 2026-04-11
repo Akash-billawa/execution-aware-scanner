@@ -9,6 +9,7 @@ mod remediator;
 mod risk_engine;
 mod sbom;
 mod state;
+mod vuln_detector;
 mod webhook;
 
 // eBPF modules only available with ebpf feature
