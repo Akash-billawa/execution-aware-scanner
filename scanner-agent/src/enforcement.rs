@@ -169,7 +169,8 @@ impl EnforcementController {
             "defaultAction": "SCMP_ACT_ERRNO",
             "architectures": ["SCMP_ARCH_X86_64", "SCMP_ARCH_X86", "SCMP_ARCH_AARCH64"],
             "syscalls": [{
-                "names": allowed_syscalls.into_iter().collect::<Vec<_>>(),
+                let names: Vec<String> = allowed_syscalls.iter().cloned().collect();
+                "names": names,
                 "action": "SCMP_ACT_ALLOW"
             }],
             "categories": categories,

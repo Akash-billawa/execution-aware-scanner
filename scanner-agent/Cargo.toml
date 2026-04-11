@@ -34,9 +34,12 @@ tracing-subscriber.workspace = true
 uuid.workspace = true
 
 # Linux-only eBPF dependencies
-[target.'cfg(target_os = "linux")'.dependencies]
+[target.'cfg(all(target_os = "linux", feature = "ebpf"))'.dependencies]
 aya = { workspace = true, optional = true }
 aya-log = { workspace = true, optional = true }
 
 [dev-dependencies]
 tokio-test = "0.4"
+
+[build-dependencies]
+tonic-build = "0.13"

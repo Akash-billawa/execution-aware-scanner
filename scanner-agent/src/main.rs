@@ -1,9 +1,7 @@
-mod bpf_loader;
 mod cgroup;
 mod config;
 mod enforcement;
 mod error;
-mod event_consumer;
 mod intel;
 mod k8s;
 mod metrics;
@@ -11,15 +9,21 @@ mod remediator;
 mod risk_engine;
 mod sbom;
 mod state;
-mod tc_enforcer;
 mod webhook;
+
+// eBPF modules only available on Linux with ebpf feature
+#[cfg(all(feature = "ebpf", target_os = "linux"))]
+mod bpf_loader;
+#[cfg(all(feature = "ebpf", target_os = "linux"))]
+mod event_consumer;
+#[cfg(all(feature = "ebpf", target_os = "linux"))]
+mod tc_enforcer;
 
 use axum::{extract::State, response::IntoResponse, routing::get, Router};
 use clap::Parser;
 use config::AppConfig;
 use enforcement::EnforcementController;
 use error::ScannerError;
-use event_consumer::EventConsumer;
 use intel::IntelFeed;
 use k8s::PodCache;
 use kube::Client;
@@ -31,6 +35,11 @@ use sbom::SbomStore;
 use state::StateStore;
 use std::collections::BTreeMap;
 use std::sync::Arc;
+
+// eBPF types only on Linux
+#[cfg(all(feature = "ebpf", target_os = "linux"))]
+use event_consumer::EventConsumer;
+#[cfg(all(feature = "ebpf", target_os = "linux"))]
 use tc_enforcer::{TcEnforcer, ThreatIntelFeed};
 use tokio::net::TcpListener;
 use tokio::sync::{watch, Mutex};
