@@ -7,7 +7,7 @@
 [![Rust](https://img.shields.io/badge/rust-1.70%2B-orange.svg)](https://www.rust-lang.org)
 [![GitHub Release](https://img.shields.io/github/v/release/Akash-billawa/execution-aware-scanner)](https://github.com/Akash-billawa/execution-aware-scanner/releases)
 
-> ⚠️ **Linux Only**: Requires Linux kernel 5.8+ with BTF support and root privileges
+> ⚠️ **Linux Only**: Requires Linux kernel 5.8+ with BTF support, sudo access, and eBPF-capable runtime support. Not compatible with Windows or macOS.
 
 **Quick Demo:**
 ```bash
@@ -54,6 +54,39 @@ sudo ./target/release/scanner-agent
 
 **NOT SUPPORTED**: Windows, macOS, WSL (Windows Subsystem for Linux)
 
+## 📦 Prerequisites
+
+Before building, install these on Linux:
+
+### System packages
+
+```bash
+sudo apt update
+sudo apt install -y git curl build-essential clang llvm libelf-dev linux-headers-$(uname -r)
+```
+
+### Rust toolchain
+
+```bash
+curl -4 https://sh.rustup.rs -sSf | sh
+source "$HOME/.cargo/env"
+```
+
+### Verify tools
+
+```bash
+rustc --version
+cargo --version
+clang --version
+```
+
+### Project requirements
+
+* Linux kernel 5.8+
+* BTF support enabled
+* Root or sudo access for runtime
+* Docker/Kubernetes optional
+
 ## 📊 What It Does
 
 Identifies **truly exploitable vulnerabilities** by correlating:
@@ -77,25 +110,26 @@ Identifies **truly exploitable vulnerabilities** by correlating:
 
 ## 🚀 Quick Start (Recommended)
 
-### Option 1: Build from Source (Fastest)
+### 1. Clone
 
 ```bash
-# 1. Clone repository
 git clone https://github.com/Akash-billawa/execution-aware-scanner.git
 cd execution-aware-scanner
+```
 
-# 2. Install Rust
-curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
-source $HOME/.cargo/env
+### 2. Install Rust and dependencies
 
-# 3. Install eBPF toolchain
-rustup target add bpfel-unknown-none
-cargo install bpf-linker
+Follow the [prerequisites](#-prerequisites) above.
 
-# 4. Build (Linux only!)
+### 3. Build
+
+```bash
 cargo build --release
+```
 
-# 5. Run with sudo (root required for eBPF)
+### 4. Run
+
+```bash
 sudo ./target/release/scanner-agent
 ```
 
@@ -386,6 +420,12 @@ This is an open project. Contributions welcome!
 5. Open Pull Request
 
 **Note**: CI runs on Linux, Windows, and macOS. Windows/Mac builds skip eBPF.
+
+## 🛠️ Build Notes
+
+- The root `Cargo.toml` is a workspace manifest.
+- Linux-only eBPF dependencies belong in the crate manifests, not the workspace manifest.
+- If you build on Windows or macOS, eBPF parts are skipped or unsupported.
 
 ## 📄 License
 
