@@ -34,13 +34,12 @@ tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt", "json"] }
 uuid = { version = "1.11", features = ["serde", "v4"] }
 
-# Linux-only dependencies (eBPF)
-[target.'cfg(target_os = "linux")'.workspace.dependencies]
+# Linux-only eBPF dependencies (declared in workspace, conditionally used)
 aya = { version = "0.13", features = ["async_tokio"] }
 aya-log = "0.2"
 aya-log-ebpf = "0.1"
 
-# Platform-specific configuration
+# Build profiles
 [profile.release]
 lto = true
 codegen-units = 1
