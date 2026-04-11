@@ -1,0 +1,31 @@
+# Git
+.git
+.gitignore
+
+# IDE
+.idea
+.vscode
+*.swp
+*.swo
+
+# Build artifacts
+target/
+dist/
+
+# Documentation
+*.md
+docs/
+
+# Tests
+*.test
+tests/
+
+# Examples (keep SBOMs)
+!examples/sboms/
+
+# CI
+.github/
+
+# Misc
+*.log
+.env

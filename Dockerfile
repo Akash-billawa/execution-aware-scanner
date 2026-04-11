@@ -1,11 +1,12 @@
+# Multi-stage build for execution-aware-scanner
 FROM rust:1.86-bookworm AS builder
 
-RUN rustup target add bpfel-unknown-none && cargo install bpf-linker
 WORKDIR /src
 COPY . .
 
-RUN cargo build --release -p scanner-common
-RUN cargo build --release -p scanner-agent
+# Build without eBPF for now (eBPF requires special build setup)
+RUN cargo build --release -p scanner-common --no-default-features
+RUN cargo build --release -p scanner-agent --no-default-features
 
 FROM debian:bookworm-slim
 
