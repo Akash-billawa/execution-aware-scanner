@@ -7,6 +7,7 @@ mod k8s;
 mod metrics;
 mod remediator;
 mod risk_engine;
+mod runtime_mapper;
 mod sbom;
 mod state;
 mod vuln_detector;
@@ -69,6 +70,7 @@ use scanner_common::Finding;
 use state::StateStore;
 use std::collections::BTreeMap;
 use std::sync::Arc;
+use vuln_detector::VulnDetector;
 
 // eBPF types only with ebpf feature
 #[cfg(feature = "ebpf")]
@@ -205,6 +207,12 @@ async fn main() -> Result<(), ScannerError> {
     let state_store = Arc::new(Mutex::new(StateStore::default()));
     let cgroup_resolver = Arc::new(Mutex::new(cgroup::CgroupResolver::new("/host/proc")));
 
+    // Initialize vulnerability detector
+    let vuln_detector = VulnDetector::new();
+    if let Err(e) = VulnDetector::check_trivy() {
+        warn!("Trivy not installed: {}. Vulnerability scanning disabled.", e);
+    }
+
     // Load eBPF and start event consumption
     let (shutdown_tx, shutdown_rx) = watch::channel(false);
     let (event_handle, analysis_handle) = match load_and_run_ebpf(
@@ -249,6 +257,7 @@ async fn main() -> Result<(), ScannerError> {
             state_store,
             cgroup_resolver,
             remediator,
+            vuln_detector,
         )
         .await
     });
@@ -359,6 +368,7 @@ async fn run_analysis_pipeline(
     state_store: Arc<Mutex<StateStore>>,
     cgroup_resolver: Arc<Mutex<cgroup::CgroupResolver>>,
     remediator: RemediatorService,
+    vuln_detector: VulnDetector,
 ) -> Result<Vec<Finding>, ScannerError> {
     let mut findings = Vec::new();
     let mut ticker = interval(Duration::from_secs(30));
@@ -376,8 +386,44 @@ async fn run_analysis_pipeline(
                 if let Some(identity) = pod_cache.lookup(&container_id).await {
                     let intel_state = intel.state();
                     let intel_state = intel_state.read().await;
-
-                    // Classify runtime paths against SBOM
+                    
+                    // 🆕 SCAN IMAGE FOR REAL VULNERABILITIES
+                    match vuln_detector.scan_image(&identity.image).await {
+                        Ok(vulns) => {
+                            info!("Found {} vulnerabilities in {}", vulns.len(), identity.image);
+                            for vuln in vulns {
+                                // Convert to risk signal
+                                let signal = scanner_common::RiskSignal {
+                                    cve: vuln.cve.clone(),
+                                    cvss: vuln.cvss_score,
+                                    epss: *intel_state.epss.get(&vuln.cve).unwrap_or(&0.0),
+                                    kev: intel_state.kev.contains(&vuln.cve),
+                                    runtime: scanner_common::RuntimeDisposition::Reachable,
+                                    package: vuln.package.clone(),
+                                    observed_paths: workload.observed_paths.clone(),
+                                };
+                                
+                                if let Some(finding) = risk_engine.evaluate(identity.clone(), signal) {
+                                    let priority = format!("{:?}", finding.priority);
+                                    metrics.inc_findings(&priority);
+                                    findings.push(finding.clone());
+                                    
+                                    // Trigger remediation for critical
+                                    if matches!(finding.priority, scanner_common::Priority::Critical) {
+                                        if let Err(e) = remediator.remediate_finding(&finding).await {
+                                            warn!("Remediation failed: {}", e);
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        Err(e) => {
+                            warn!("Vulnerability scan failed for {}: {}", identity.image, e);
+                            // Fall back to SBOM-based detection
+                        }
+                    }
+                    
+                    // Original SBOM-based detection (fallback)
                     let components = sbom_store
                         .classify_runtime_paths(&identity.image, &workload.observed_paths);
 
