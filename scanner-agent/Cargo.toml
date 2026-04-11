@@ -4,10 +4,12 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 
+[features]
+default = ["ebpf"]
+ebpf = ["aya", "aya-log"]
+
 [dependencies]
 anyhow.workspace = true
-aya.workspace = true
-aya-log.workspace = true
 axum = "0.7"
 bytes.workspace = true
 chrono.workspace = true
@@ -30,3 +32,11 @@ tower = "0.5"
 tracing.workspace = true
 tracing-subscriber.workspace = true
 uuid.workspace = true
+
+# Linux-only eBPF dependencies
+[target.'cfg(target_os = "linux")'.dependencies]
+aya = { workspace = true, optional = true }
+aya-log = { workspace = true, optional = true }
+
+[dev-dependencies]
+tokio-test = "0.4"

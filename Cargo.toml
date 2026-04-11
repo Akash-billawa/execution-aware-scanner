@@ -14,9 +14,6 @@ authors = ["OpenCode"]
 
 [workspace.dependencies]
 anyhow = "1.0"
-aya = { version = "0.13", features = ["async_tokio"] }
-aya-log = "0.2"
-aya-log-ebpf = "0.1"
 bytes = { version = "1.7", features = ["serde"] }
 chrono = { version = "0.4", default-features = false, features = ["clock", "serde"] }
 clap = { version = "4.5", features = ["derive", "env"] }
@@ -36,3 +33,18 @@ tokio-stream = "0.1"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt", "json"] }
 uuid = { version = "1.11", features = ["serde", "v4"] }
+
+# Linux-only dependencies (eBPF)
+[target.'cfg(target_os = "linux")'.workspace.dependencies]
+aya = { version = "0.13", features = ["async_tokio"] }
+aya-log = "0.2"
+aya-log-ebpf = "0.1"
+
+# Platform-specific configuration
+[profile.release]
+lto = true
+codegen-units = 1
+opt-level = 3
+
+[profile.dev]
+opt-level = 0

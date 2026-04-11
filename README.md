@@ -1,31 +1,74 @@
 # Execution-Aware eBPF Scanner
 
-[![CI](https://github.com/example/execution-aware-scanner/actions/workflows/ci.yaml/badge.svg)](https://github.com/example/execution-aware-scanner/actions/workflows/ci.yaml)
+**Runtime-aware vulnerability scanner using eBPF + threat intelligence (EXF scoring)**
+
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
 [![Rust](https://img.shields.io/badge/rust-1.70%2B-orange.svg)](https://www.rust-lang.org)
 
-A production-grade eBPF-based security scanner that correlates runtime execution with SBOM vulnerabilities to identify truly exploitable threats.
+> ⚠️ **Linux Only**: Requires Linux kernel 5.8+ with BTF support and root privileges
 
-## Features
+## ⚠️ System Requirements
 
-- **Real-time eBPF Monitoring**: Traces process execution, file access, and network connections
-- **Execution-Aware Risk Scoring**: Combines CVSS, EPSS, CISA KEV, and runtime reachability
-- **Auto-Generated Seccomp**: Creates least-privilege syscall profiles from observed behavior
-- **Threat Intelligence**: Integrates CISA KEV and EPSS for exploitability assessment
-- **Kubernetes Native**: Full K8s metadata correlation and automated remediation
-- **XDP/TC Enforcement**: Kernel-level network filtering for C2 traffic
+**MANDATORY** - This project ONLY works on Linux:
 
-## Quick Start
+- ✅ **Linux kernel 5.8+** (check with `uname -r`)
+- ✅ **BTF support enabled** (check with `ls /sys/kernel/btf/`)
+- ✅ **Root/sudo access** (required for eBPF)
+- ✅ **Kubernetes cluster** (optional, for K8s features)
 
-### Prerequisites
+**NOT SUPPORTED**: Windows, macOS, WSL (Windows Subsystem for Linux)
 
-- Linux kernel 5.8+ with BTF support
-- Kubernetes 1.25+ (for K8s deployment)
-- Rust 1.70+ (for building from source)
+## 📊 What It Does
 
-### Docker (Quickest)
+Identifies **truly exploitable vulnerabilities** by correlating:
+
+1. **Runtime execution** (eBPF traces syscalls)
+2. **SBOM data** (what packages are present)
+3. **Threat intelligence** (CISA KEV + EPSS scores)
+4. **Risk scoring** (CVSS × EPSS × KEV × Runtime)
+
+**Example Output:**
+```
+[CRITICAL] CVE-2023-XXXX (Log4j) exploited (EPSS: 0.92, KEV: true)
+  Runtime: Reachable via /app/lib/log4j-core-2.14.1.jar
+  Auto-remediation: Seccomp profile generated + egress blocked
+  Action: Workload quarantined, seccomp applied
+
+[WARNING] CVE-2024-YYYY (OpenSSL) dormant (EPSS: 0.45)
+  Runtime: Not loaded in memory
+  Action: Scheduled for patching during maintenance
+```
+
+## 🚀 Quick Start (Recommended)
+
+### Option 1: Build from Source (Fastest)
 
 ```bash
+# 1. Clone repository
+git clone https://github.com/YOUR_USERNAME/execution-aware-scanner.git
+cd execution-aware-scanner
+
+# 2. Install Rust
+curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
+source $HOME/.cargo/env
+
+# 3. Install eBPF toolchain
+rustup target add bpfel-unknown-none
+cargo install bpf-linker
+
+# 4. Build (Linux only!)
+cargo build --release
+
+# 5. Run with sudo (root required for eBPF)
+sudo ./target/release/scanner-agent
+```
+
+### Option 2: Docker (After Image is Published)
+
+```bash
+# ⚠️ NOTE: Image not yet published! 
+# This will work after first GitHub release
+
 docker run -d \
   --name scanner \
   --privileged \
@@ -33,87 +76,142 @@ docker run -d \
   -v /sys/fs/bpf:/sys/fs/bpf \
   -v /proc:/host/proc:ro \
   -v /var/lib/scanner:/var/lib/scanner \
-  ghcr.io/example/execution-aware-scanner:latest
+  ghcr.io/YOUR_USERNAME/execution-aware-scanner:latest
 ```
 
-### Kubernetes (Recommended)
+**Status**: Docker image will be available after first release
+
+## 📋 Step-by-Step Guide
+
+### 1. Verify Your System
 
 ```bash
-# Add Helm repository
-helm repo add execution-aware-scanner \
-  https://example.github.io/execution-aware-scanner
+# Check kernel version (must be 5.8+)
+uname -r
 
-# Install
-helm install scanner execution-aware-scanner/execution-aware-scanner \
-  --namespace execution-aware-scanner \
-  --create-namespace
+# Verify BTF support
+ls /sys/kernel/btf/vmlinux
 
-# Verify
-kubectl get pods -n execution-aware-scanner
-kubectl logs -n execution-aware-scanner -l app.kubernetes.io/name=execution-aware-scanner
+# Check eBPF is enabled
+cat /proc/sys/kernel/bpf_stats_enabled
 ```
 
-### Build from Source
+**If any check fails**: Upgrade kernel or use different machine
+
+### 2. Install Dependencies
+
+**Ubuntu/Debian:**
+```bash
+sudo apt-get update
+sudo apt-get install -y llvm clang libelf-dev linux-headers-$(uname -r)
+```
+
+**RHEL/CentOS/Rocky:**
+```bash
+sudo yum install -y llvm clang elfutils-libelf-devel kernel-headers
+```
+
+### 3. Build
 
 ```bash
-# Install Rust
-curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
-source $HOME/.cargo/env
-
-# Install eBPF toolchain
-rustup target add bpfel-unknown-none
-cargo install bpf-linker
-
-# Clone and build
-git clone https://github.com/example/execution-aware-scanner.git
+# Clone
+git clone https://github.com/YOUR_USERNAME/execution-aware-scanner.git
 cd execution-aware-scanner
+
+# Build (takes ~5 minutes on first run)
 cargo build --release
 
-# Run
+# Output binaries:
+# - target/release/scanner-agent (main daemon)
+# - target/bpfel-unknown-none/release/scanner-ebpf (eBPF program)
+```
+
+### 4. Configure
+
+```bash
+# Create directories
+sudo mkdir -p /var/lib/scanner/sboms
+sudo mkdir -p /var/lib/scanner/seccomp
+sudo mkdir -p /opt/scanner
+
+# Copy eBPF object
+sudo cp target/bpfel-unknown-none/release/scanner-ebpf /opt/scanner/scanner-ebpf.o
+```
+
+### 5. Generate SBOMs
+
+```bash
+# Install Syft
+curl -sSfL https://raw.githubusercontent.com/anchore/syft/main/install.sh | sudo sh -s -- -b /usr/local/bin
+
+# Generate SBOM for your container images
+sudo syft your-app:latest -o spdx-json=/var/lib/scanner/sboms/your-app.json
+```
+
+### 6. Run
+
+```bash
+# Run directly
 sudo ./target/release/scanner-agent
+
+# Or with config
+sudo ./target/release/scanner-agent --config scanner.yaml
+
+# Or with systemd (see docs)
+sudo systemctl start execution-aware-scanner
 ```
 
-## Architecture
+## 📊 Example Output
+
+### Normal Operation
 
 ```
-┌─────────────────────────────────────────────────────────────┐
-│                    User Space                               │
-│  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐    │
-│  │   Scanner    │  │    Risk      │  │ Enforcement  │    │
-│  │   Agent      │◄─┤   Engine     │◄─┤  Controller  │    │
-│  └──────┬───────┘  └──────────────┘  └──────────────┘    │
-│         │                                                   │
-│    Ring │ Buffers                                           │
-│         ▼                                                   │
-│  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐    │
-│  │   K8s      │  │    Intel     │  │   Metrics    │    │
-│  │   Cache    │  │    Feed      │  │   Server     │    │
-│  └──────────────┘  └──────────────┘  └──────────────┘    │
-└─────────────────────────────────────────────────────────────┘
-                            │
-                    ┌───────┴───────┐
-                    │  eBPF Programs  │
-                    │  (Kernel Space) │
-                    └───────────────┘
+[INFO] Scanner started on node: worker-1
+[INFO] Loaded eBPF programs: tracepoints, kprobes, XDP
+[INFO] Connected to Kubernetes API
+[INFO] Loaded 1,247 CVEs from CISA KEV
+[INFO] Loaded EPSS scores for 215,892 CVEs
+
+[WARN] [CVE-2024-1234] openssl 3.0.0 - HIGH
+  CVSS: 7.5 | EPSS: 0.72 | KEV: false
+  Runtime: REACHABLE via /usr/lib/libssl.so
+  Action: Generating seccomp profile
+  
+[CRITICAL] [CVE-2023-44228] log4j 2.14.1 - CRITICAL
+  CVSS: 10.0 | EPSS: 0.98 | KEV: true
+  Runtime: REACHABLE via /app/lib/log4j-core.jar
+  Action: Auto-remediation triggered
+    - Seccomp profile applied
+    - Egress traffic blocked
+    - Admin notified
 ```
 
-## Configuration
+### Metrics
+
+```bash
+# View metrics
+curl http://localhost:9898/metrics
+
+# Prometheus format output:
+# scanner_events_total{type="exec"} 15247
+# scanner_findings_total{priority="Critical"} 3
+# scanner_findings_total{priority="High"} 12
+# scanner_seccomp_profiles_generated 8
+```
+
+## 🔧 Configuration
 
 ### Environment Variables
 
-| Variable | Description | Default |
-|----------|-------------|---------|
-| `RUST_LOG` | Log level (error, warn, info, debug, trace) | `info` |
-| `SCANNER__METRICS__BIND_ADDR` | Metrics server bind address | `0.0.0.0:9898` |
-| `SCANNER__RISK__MINIMUM_CVSS` | Minimum CVSS score for findings | `4.0` |
-| `SCANNER__RISK__MINIMUM_EPSS` | Minimum EPSS score for findings | `0.1` |
-| `SCANNER__INTEL__REFRESH_INTERVAL_SECS` | Threat intel refresh interval | `21600` |
-| `SCANNER__REMEDIATOR__ENABLED` | Enable auto-remediation | `true` |
-| `SCANNER__REMEDIATOR__AUTO_SECCOMP` | Auto-generate seccomp profiles | `true` |
+```bash
+export RUST_LOG=info                    # Log level: error, warn, info, debug, trace
+export SCANNER__RISK__MINIMUM_CVSS=4.0  # Minimum CVSS to report
+export SCANNER__RISK__MINIMUM_EPSS=0.1   # Minimum EPSS to report
+export SCANNER__METRICS__BIND_ADDR=0.0.0.0:9898
+export SCANNER__REMEDIATOR__AUTO_SECCOMP=true
+```
 
-### Config File
-
-Create `scanner.yaml`:
+### Config File (scanner.yaml)
 
 ```yaml
 scanner:
@@ -125,115 +223,143 @@ risk:
   min_cvss: 4.0
   min_epss: 0.1
   weights:
-    cvss: 0.45
-    epss: 0.25
-    kev: 0.15
-    runtime: 0.15
+    cvss: 0.45   # Base severity
+    epss: 0.25   # Exploit probability
+    kev: 0.15    # Known exploited
+    runtime: 0.15 # Actually reachable
 
 intel:
   kev_url: "https://www.cisa.gov/sites/default/files/feeds/known_exploited_vulnerabilities.json"
   epss_url: "https://api.first.org/data/v1/epss"
+  refresh_interval_secs: 21600  # 6 hours
 
 webhook:
   enabled: true
   endpoints:
-    - name: siem
-      url: "https://siem.company.com/webhook"
+    - name: slack
+      url: "https://hooks.slack.com/services/YOUR/WEBHOOK/URL"
       min_priority: High
 ```
 
-## Usage
+## 🏗️ Architecture
 
-### Generate SBOMs
+```
+┌───────────────────────────────────────────────────────────────┐
+│                      User Space                               │
+│  ┌──────────────┐    ┌─────────────┐    ┌──────────────┐   │
+│  │ Event Consumer│───▶│ EXF Risk    │───▶│ Enforcement │   │
+│  │ (Tokio async)│    │ Engine      │    │ Controller   │   │
+│  └──────────────┘    └─────────────┘    └──────────────┘   │
+│         ▲                    ▲                   ▲           │
+│         │                    │                   │           │
+│  ┌──────┴──────┐    ┌────────┴────────┐   ┌────┴──────┐   │
+│  │ K8s Cache   │    │ Threat Intel    │   │ Seccomp   │   │
+│  │ (Pod/Node)  │    │ (KEV + EPSS)    │   │ Generator │   │
+│  └─────────────┘    └─────────────────┘   └─────────────┘   │
+└───────────────────────────────────────────────────────────────┘
+                            │
+                    ┌───────┴───────┐
+                    │  eBPF Programs  │
+                    │  (Kernel Space) │
+                    │  - tracepoints  │
+                    │  - kprobes      │
+                    │  - XDP/TC       │
+                    └───────────────┘
+```
 
+## 📚 Documentation
+
+- **[DEPLOYMENT_GUIDE.md](docs/DEPLOYMENT_GUIDE.md)** - Complete production deployment
+- **[PRODUCTION.md](docs/PRODUCTION.md)** - Day-to-day operations
+- **[GITHUB_SETUP.md](GITHUB_SETUP.md)** - Push to your own GitHub repo
+
+## 🐛 Troubleshooting
+
+### "Failed to load eBPF object"
+
+**Cause**: Kernel doesn't support BTF
+
+**Fix**:
 ```bash
-# Install Syft
-curl -sSfL https://raw.githubusercontent.com/anchore/syft/main/install.sh | sudo sh -s -- -b /usr/local/bin
+# Check BTF
+ls /sys/kernel/btf/vmlinux
 
-# Generate SBOM
-sudo syft nginx:latest -o spdx-json=/var/lib/scanner/sboms/nginx.json
-
-# Generate for your images
-for image in app:v1.0 api:v2.0 db:v1.0; do
-    name=$(echo $image | tr '/:' '_')
-    sudo syft $image -o spdx-json=/var/lib/scanner/sboms/${name}.json
-done
+# If missing, upgrade kernel to 5.8+ or enable CONFIG_DEBUG_INFO_BTF
 ```
 
-### Monitor Metrics
+### "Permission denied"
 
+**Cause**: Not running as root
+
+**Fix**:
 ```bash
-# Port-forward metrics (K8s)
-kubectl port-forward -n execution-aware-scanner \
-  svc/execution-aware-scanner-metrics 9898:9898 &
-
-# View metrics
-curl http://localhost:9898/metrics
-
-# Check health
-curl http://localhost:9898/health
-curl http://localhost:9898/ready
+# Must use sudo
+sudo ./scanner-agent
 ```
 
-### Prometheus Queries
+### "No findings detected"
 
-```promql
-# Event rate
-rate(scanner_events_total[5m])
+**Cause**: Missing SBOMs
 
-# Critical findings
-scanner_findings_total{priority="Critical"}
+**Fix**:
+```bash
+# Check SBOMs exist
+ls /var/lib/scanner/sboms/
 
-# Event drop rate
-rate(scanner_dropped_events[5m]) / rate(scanner_events_total[5m])
+# Generate with Syft
+syft your-image:latest -o spdx-json=/var/lib/scanner/sboms/your-image.json
 ```
 
-## Documentation
+### Windows/macOS Build Fails
 
-- [Production Deployment Guide](docs/DEPLOYMENT_GUIDE.md) - Complete deployment instructions
-- [Operations Guide](docs/OPERATIONS.md) - Day-to-day operations
-- [Architecture](docs/ARCHITECTURE.md) - System design and components
-- [Contributing](CONTRIBUTING.md) - Contribution guidelines
+**Expected**! This is **Linux-only**. Build will fail with:
+```
+error: eBPF requires Linux kernel features
+```
 
-## Project Structure
+**Solution**: Use Linux VM or WSL2 with kernel 5.8+
+
+## 🔒 Security
+
+- **Privileged Access**: Required for eBPF (by design)
+- **Seccomp Review**: Auto-generated profiles should be reviewed
+- **Network Policies**: Included in Helm chart
+- **Secrets**: Store webhook tokens in K8s secrets
+
+## 📦 Project Structure
 
 ```
 execution-aware-scanner/
-├── scanner-common/          # Shared types and utilities
-├── scanner-ebpf/            # Kernel-space eBPF programs
-├── scanner-agent/           # User-space daemon
-├── deploy/                  # Kubernetes manifests
-├── helm/                    # Helm charts
-├── docs/                    # Documentation
-├── examples/                # Example configurations
-└── .github/workflows/       # CI/CD pipelines
+├── scanner-ebpf/         # Kernel eBPF programs (Linux only!)
+├── scanner-common/       # Shared types (cross-platform)
+├── scanner-agent/        # User-space daemon
+├── deploy/               # Kubernetes manifests
+├── helm/                 # Production Helm charts
+├── docs/                 # Documentation
+└── .github/workflows/    # CI/CD (builds on Linux + Windows/Mac without eBPF)
 ```
 
-## Security
+## 🤝 Contributing
 
-- The scanner requires privileged access to load eBPF programs
-- Generated seccomp profiles should be reviewed before deployment
-- Webhook tokens should be stored in Kubernetes secrets
-- Network policies are included for egress control
+This is an open project. Contributions welcome!
 
-See [SECURITY.md](SECURITY.md) for security policies and reporting vulnerabilities.
+1. Fork the repo
+2. Create branch: `git checkout -b feature/my-feature`
+3. Commit: `git commit -am 'Add feature'`
+4. Push: `git push origin feature/my-feature`
+5. Open Pull Request
 
-## License
+**Note**: CI runs on Linux, Windows, and macOS. Windows/Mac builds skip eBPF.
 
-This project is licensed under the Apache License 2.0 - see [LICENSE](LICENSE) for details.
+## 📄 License
 
-## Support
+Apache License 2.0 - See [LICENSE](LICENSE)
 
-- GitHub Issues: https://github.com/example/execution-aware-scanner/issues
-- Discussions: https://github.com/example/execution-aware-scanner/discussions
-- Slack: [#execution-aware-scanner](https://example.slack.com)
+## 💬 Support
 
-## Acknowledgments
-
-- [Aya](https://aya-rs.dev/) - eBPF library for Rust
-- [Tokio](https://tokio.rs/) - Async runtime
-- [Kube-rs](https://kube.rs/) - Kubernetes client for Rust
+- GitHub Issues: https://github.com/YOUR_USERNAME/execution-aware-scanner/issues
+- **Important**: Only works on Linux 5.8+ with BTF
 
 ---
 
-**Status**: Production Ready | **Version**: 1.0.0 | **Last Updated**: 2024
+**Status**: Production Ready | **Platform**: Linux Only | **Kernel**: 5.8+ Required
