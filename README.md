@@ -3,6 +3,7 @@
 **Runtime-aware vulnerability scanner using eBPF + threat intelligence (EXF scoring)**
 
 [![CI](https://github.com/Akash-billawa/execution-aware-scanner/actions/workflows/ci.yaml/badge.svg)](https://github.com/Akash-billawa/execution-aware-scanner/actions/workflows/ci.yaml)
+[![Docker](https://img.shields.io/badge/docker-ghcr.io-blue.svg)](https://ghcr.io/akash-billawa/execution-aware-scanner)
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
 [![Rust](https://img.shields.io/badge/rust-1.70%2B-orange.svg)](https://www.rust-lang.org)
 [![GitHub Release](https://img.shields.io/github/v/release/Akash-billawa/execution-aware-scanner)](https://github.com/Akash-billawa/execution-aware-scanner/releases)
@@ -133,12 +134,9 @@ cargo build --release
 sudo ./target/release/scanner-agent
 ```
 
-### Option 2: Docker (After Image is Published)
+### Option 2: Docker (Recommended)
 
 ```bash
-# ⚠️ NOTE: Image not yet published! 
-# This will work after first GitHub release
-
 docker run -d \
   --name scanner \
   --privileged \
@@ -148,8 +146,6 @@ docker run -d \
   -v /var/lib/scanner:/var/lib/scanner \
   ghcr.io/akash-billawa/execution-aware-scanner:latest
 ```
-
-**Status**: Docker image will be available after first release
 
 ## 📋 Step-by-Step Guide
 
