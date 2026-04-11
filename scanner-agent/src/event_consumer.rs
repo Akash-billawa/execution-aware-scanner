@@ -1,3 +1,5 @@
+#![cfg(all(feature = "ebpf", target_os = "linux"))]
+
 use crate::cgroup::CgroupResolver;
 use crate::error::ScannerError;
 use crate::k8s::PodCache;

@@ -1,3 +1,5 @@
+#![cfg(all(feature = "ebpf", target_os = "linux"))]
+
 use crate::error::ScannerError;
 use aya::maps::RingBuf;
 use aya::programs::{KProbe, Lsm, TracePoint, Xdp};

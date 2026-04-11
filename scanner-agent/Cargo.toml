@@ -6,8 +6,8 @@ license.workspace = true
 
 [features]
 default = []
-ebpf = []
-remediator-proto = ["tonic"]
+ebpf = ["dep:aya", "dep:aya-log"]
+remediator-proto = ["dep:tonic"]
 
 [dependencies]
 anyhow.workspace = true
@@ -34,10 +34,10 @@ tracing.workspace = true
 tracing-subscriber.workspace = true
 uuid.workspace = true
 
-# Linux-only eBPF dependencies
-[target.'cfg(target_os = "linux")'.dependencies]
-aya = { workspace = true, optional = true }
-aya-log = { workspace = true, optional = true }
+# Linux-only eBPF dependencies - only when ebpf feature is enabled
+[target.'cfg(all(target_os = "linux", feature = "ebpf"))'.dependencies]
+aya = { workspace = true }
+aya-log = { workspace = true }
 
 [dev-dependencies]
 tokio-test = "0.4"
