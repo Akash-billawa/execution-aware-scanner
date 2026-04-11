@@ -168,7 +168,7 @@ impl EnforcementController {
 
     // Collect syscalls into a Vec<String> before the json! macro
     let syscall_count = allowed_syscalls.len();
-    let names: Vec<String> = allowed_syscalls.into_iter().collect();
+    let names: Vec<String> = allowed_syscalls.clone().into_iter().collect();
 
     let profile = serde_json::json!({
         "defaultAction": "SCMP_ACT_ERRNO",

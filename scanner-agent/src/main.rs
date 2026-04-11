@@ -23,6 +23,12 @@ mod tc_enforcer;
 #[cfg(not(feature = "ebpf"))]
 mod event_consumer {
     pub struct EventConsumer;
+    impl EventConsumer {
+        pub fn new() -> Self {
+            Self
+        }
+    }
+    #[derive(Default)]
     pub struct ConsumerStats {
         pub events_received: u64,
         pub events_dropped: u64,
@@ -33,7 +39,17 @@ mod event_consumer {
 #[cfg(not(feature = "ebpf"))]
 mod tc_enforcer {
     pub struct TcEnforcer;
+    impl TcEnforcer {
+        pub fn new() -> Self {
+            Self
+        }
+    }
     pub struct ThreatIntelFeed;
+    impl ThreatIntelFeed {
+        pub fn new() -> Self {
+            Self
+        }
+    }
 }
 
 use axum::{extract::State, response::IntoResponse, routing::get, Router};
@@ -62,8 +78,8 @@ use tc_enforcer::{TcEnforcer, ThreatIntelFeed};
 // Stub types for non-eBPF
 #[cfg(not(feature = "ebpf"))]
 use tc_enforcer::{TcEnforcer, ThreatIntelFeed};
-#[cfg(not(all(feature = "ebpf", target_os = "linux")))]
-use event_consumer_stub::{EventConsumer, ConsumerStats};
+#[cfg(not(feature = "ebpf"))]
+use event_consumer::{EventConsumer, ConsumerStats};
 
 use tokio::net::TcpListener;
 use tokio::sync::{watch, Mutex};
