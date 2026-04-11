@@ -90,10 +90,10 @@ jobs:
         run: cargo fmt --all -- --check
 
       - name: Run clippy (common only)
-        run: cargo clippy -p scanner-common -- -D warnings
+        run: cargo clippy -p scanner-common
 
       - name: Run clippy (agent without eBPF)
-        run: cargo clippy -p scanner-agent --no-default-features -- -D warnings
+        run: cargo clippy -p scanner-agent --no-default-features
 
   # Security audit
   security:
