@@ -167,7 +167,8 @@ impl EnforcementController {
     }
 
     // Collect syscalls into a Vec<String> before the json! macro
-    let names: Vec<String> = allowed_syscalls.iter().cloned().collect();
+    let syscall_count = allowed_syscalls.len();
+    let names: Vec<String> = allowed_syscalls.into_iter().collect();
 
     let profile = serde_json::json!({
         "defaultAction": "SCMP_ACT_ERRNO",
@@ -181,7 +182,7 @@ impl EnforcementController {
             "generated_by": "execution-aware-scanner",
             "generated_at": chrono::Utc::now().to_rfc3339(),
             "workload_id": workload_id,
-            "syscall_count": allowed_syscalls.len(),
+            "syscall_count": syscall_count,
         }
     });
 

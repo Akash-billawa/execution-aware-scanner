@@ -1,4 +1,4 @@
-#![cfg(all(feature = "ebpf", target_os = "linux"))]
+#![cfg(feature = "ebpf")]
 
 use crate::cgroup::CgroupResolver;
 use crate::error::ScannerError;
@@ -104,7 +104,7 @@ impl EventConsumer {
         state_store: Arc<Mutex<StateStore>>,
         cgroup_resolver: Arc<Mutex<CgroupResolver>>,
         metrics: Metrics,
-        shutdown: tokio::sync::watch::Receiver<bool>,
+        mut shutdown: tokio::sync::watch::Receiver<bool>,
     ) -> Result<(), ScannerError> {
         info!("Event consumer started");
 

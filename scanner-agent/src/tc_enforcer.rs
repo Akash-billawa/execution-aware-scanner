@@ -1,4 +1,4 @@
-#![cfg(all(feature = "ebpf", target_os = "linux"))]
+#![cfg(feature = "ebpf")]
 
 use crate::error::ScannerError;
 use aya::maps::HashMap as BpfHashMap;
