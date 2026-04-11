@@ -142,45 +142,48 @@ impl EnforcementController {
             warn!("No syscall baseline for {}, using default", workload_id);
         }
 
-        // Essential syscalls that must always be allowed
-        let mut allowed_syscalls: BTreeSet<String> = [
-            "exit", "exit_group", "rt_sigreturn", "sigreturn",
-            "brk", "mmap", "munmap", "mprotect",
-            "arch_prctl", "set_tid_address",
-        ]
-        .iter()
-        .map(|s| s.to_string())
-        .collect();
+    // Essential syscalls that must always be allowed
+    let mut allowed_syscalls: BTreeSet<String> = [
+        "exit", "exit_group", "rt_sigreturn", "sigreturn",
+        "brk", "mmap", "munmap", "mprotect",
+        "arch_prctl", "set_tid_address",
+    ]
+    .iter()
+    .cloned()
+    .map(|s| s.to_string())
+    .collect();
 
         // Merge with observed syscalls
         allowed_syscalls.extend(syscalls);
 
-        // Group syscalls by category
-        let mut categories: BTreeMap<String, Vec<String>> = BTreeMap::new();
-        for syscall in &allowed_syscalls {
-            let category = categorize_syscall(syscall);
-            categories
-                .entry(category)
-                .or_default()
-                .push(syscall.clone());
-        }
+    // Build syscall groups for better readability
+    let mut categories: BTreeMap<String, Vec<String>> = BTreeMap::new();
+    for syscall in &allowed_syscalls {
+        let category = categorize_syscall(syscall);
+        categories
+            .entry(category)
+            .or_default()
+            .push(syscall.clone());
+    }
 
-        let profile = serde_json::json!({
-            "defaultAction": "SCMP_ACT_ERRNO",
-            "architectures": ["SCMP_ARCH_X86_64", "SCMP_ARCH_X86", "SCMP_ARCH_AARCH64"],
-            "syscalls": [{
-                let names: Vec<String> = allowed_syscalls.iter().cloned().collect();
-                "names": names,
-                "action": "SCMP_ACT_ALLOW"
-            }],
-            "categories": categories,
-            "metadata": {
-                "generated_by": "execution-aware-scanner",
-                "generated_at": chrono::Utc::now().to_rfc3339(),
-                "workload_id": workload_id,
-                "syscall_count": allowed_syscalls.len(),
-            }
-        });
+    // Collect syscalls into a Vec<String> before the json! macro
+    let names: Vec<String> = allowed_syscalls.iter().cloned().collect();
+
+    let profile = serde_json::json!({
+        "defaultAction": "SCMP_ACT_ERRNO",
+        "architectures": ["SCMP_ARCH_X86_64", "SCMP_ARCH_X86", "SCMP_ARCH_AARCH64"],
+        "syscalls": [{
+            "names": names,
+            "action": "SCMP_ACT_ALLOW"
+        }],
+        "categories": categories,
+        "metadata": {
+            "generated_by": "execution-aware-scanner",
+            "generated_at": chrono::Utc::now().to_rfc3339(),
+            "workload_id": workload_id,
+            "syscall_count": allowed_syscalls.len(),
+        }
+    });
 
         info!(
             "Generated seccomp profile for {} with {} syscalls",
@@ -422,13 +425,13 @@ impl EnforcementController {
 }
 
 fn categorize_syscall(syscall: &str) -> String {
-    let categories: HashMap<&str, &[&str]> = [
-        ("memory", &["mmap", "munmap", "mprotect", "brk", "sbrk"]),
-        ("file", &["openat", "openat2", "read", "write", "close", "fstat", "lseek", "access"]),
-        ("process", &["execve", "execveat", "clone", "fork", "vfork", "exit", "wait4", "getpid"]),
-        ("network", &["socket", "connect", "bind", "listen", "accept", "sendto", "recvfrom", "setsockopt"]),
-        ("signal", &["rt_sigaction", "rt_sigprocmask", "rt_sigreturn", "kill", "tkill", "tgkill"]),
-        ("time", &["clock_gettime", "gettimeofday", "nanosleep", "alarm", "timer_create"]),
+    let categories: HashMap<&str, Vec<&str>> = [
+        ("memory", vec!["mmap", "munmap", "mprotect", "brk", "sbrk"]),
+        ("file", vec!["openat", "openat2", "read", "write", "close", "fstat", "lseek", "access"]),
+        ("process", vec!["execve", "execveat", "clone", "fork", "vfork", "exit", "wait4", "getpid"]),
+        ("network", vec!["socket", "connect", "bind", "listen", "accept", "sendto", "recvfrom", "setsockopt"]),
+        ("signal", vec!["rt_sigaction", "rt_sigprocmask", "rt_sigreturn", "kill", "tkill", "tgkill"]),
+        ("time", vec!["clock_gettime", "gettimeofday", "nanosleep", "alarm", "timer_create"]),
     ]
     .iter()
     .cloned()

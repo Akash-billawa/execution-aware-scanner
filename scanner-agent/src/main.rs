@@ -19,6 +19,12 @@ mod event_consumer;
 #[cfg(all(feature = "ebpf", target_os = "linux"))]
 mod tc_enforcer;
 
+// Stub modules for non-eBPF builds
+#[cfg(not(all(feature = "ebpf", target_os = "linux")))]
+mod event_consumer_stub;
+#[cfg(not(all(feature = "ebpf", target_os = "linux")))]
+mod tc_enforcer_stub;
+
 use axum::{extract::State, response::IntoResponse, routing::get, Router};
 use clap::Parser;
 use config::AppConfig;
@@ -29,7 +35,7 @@ use k8s::PodCache;
 use kube::Client;
 use metrics::Metrics;
 use remediator::RemediatorService;
-use risk::RiskEngine;
+use risk_engine::RiskEngine;
 use scanner_common::Finding;
 use sbom::SbomStore;
 use state::StateStore;
@@ -41,6 +47,13 @@ use std::sync::Arc;
 use event_consumer::EventConsumer;
 #[cfg(all(feature = "ebpf", target_os = "linux"))]
 use tc_enforcer::{TcEnforcer, ThreatIntelFeed};
+
+// Stub types for non-eBPF
+#[cfg(not(all(feature = "ebpf", target_os = "linux")))]
+use tc_enforcer_stub::{TcEnforcer, ThreatIntelFeed};
+#[cfg(not(all(feature = "ebpf", target_os = "linux")))]
+use event_consumer_stub::{EventConsumer, ConsumerStats};
+
 use tokio::net::TcpListener;
 use tokio::sync::{watch, Mutex};
 use tokio::time::{interval, Duration, Instant};
@@ -57,7 +70,10 @@ struct Cli {
 #[derive(Clone)]
 struct AppState {
     metrics: Metrics,
+    #[cfg(all(feature = "ebpf", target_os = "linux"))]
     event_stats: Arc<Mutex<event_consumer::ConsumerStats>>,
+    #[cfg(not(all(feature = "ebpf", target_os = "linux")))]
+    event_stats: Arc<Mutex<ConsumerStats>>,
 }
 
 #[tokio::main]
@@ -70,6 +86,9 @@ async fn main() -> Result<(), ScannerError> {
     let cli = Cli::parse();
     let config = AppConfig::load()?;
     let metrics = Metrics::new();
+
+    // Create event stats with proper type
+    #[cfg(all(feature = "ebpf", target_os = "linux"))]
     let event_stats = Arc::new(Mutex::new(event_consumer::ConsumerStats {
         events_received: 0,
         events_dropped: 0,
@@ -79,7 +98,10 @@ async fn main() -> Result<(), ScannerError> {
         file_batch_size: 0,
         net_batch_size: 0,
     }));
-    
+
+    #[cfg(not(all(feature = "ebpf", target_os = "linux")))]
+    let event_stats = Arc::new(Mutex::new(ConsumerStats::default()));
+
     let state = AppState {
         metrics: metrics.clone(),
         event_stats: event_stats.clone(),
@@ -96,7 +118,7 @@ async fn main() -> Result<(), ScannerError> {
     if let Err(err) = intel.refresh().await {
         warn!(error = %err, "initial intel refresh failed");
     }
-    
+
     // Start intel refresh loop
     let intel_clone = intel.clone();
     let intel_handle = if !cli.once {
@@ -129,7 +151,7 @@ async fn main() -> Result<(), ScannerError> {
     let enforcement_controller = EnforcementController::new(config.remediator.clone());
     let tc_enforcer = TcEnforcer::new();
     let threat_intel = ThreatIntelFeed::new();
-    
+
     info!("Phase 5 enforcement components initialized");
 
     // Load SBOM store
@@ -214,9 +236,7 @@ async fn main() -> Result<(), ScannerError> {
     if let Some(handle) = event_handle {
         let _ = handle.await;
     }
-    if let Some(handle) = analysis_handle {
-        let _ = handle.await;
-    }
+    let _ = analysis_handle.await;
     if let Some(handle) = intel_handle {
         handle.abort();
     }
@@ -226,6 +246,7 @@ async fn main() -> Result<(), ScannerError> {
     Ok(())
 }
 
+#[cfg(all(feature = "ebpf", target_os = "linux"))]
 async fn load_and_run_ebpf(
     cli: &Cli,
     config: &AppConfig,
@@ -237,16 +258,16 @@ async fn load_and_run_ebpf(
 ) -> Result<(Option<tokio::task::JoinHandle<()>>, Option<tokio::task::JoinHandle<()>>), ScannerError> {
     // Load eBPF
     let mut loader = bpf_loader::BpfLoader::new(&config.bpf.object_path)?;
-    
+
     // Attach programs
     loader.attach_tracepoints()?;
     loader.attach_kprobes()?;
-    
+
     // Try to attach LSM (may fail if not supported)
     if let Err(e) = loader.attach_lsm_hooks() {
         warn!("LSM hooks not available: {}", e);
     }
-    
+
     // Try to attach XDP (requires network interface)
     if let Err(e) = loader.attach_xdp(&cli.iface) {
         warn!("XDP not attached: {}", e);
@@ -270,6 +291,21 @@ async fn load_and_run_ebpf(
     Ok((Some(event_handle), None))
 }
 
+#[cfg(not(all(feature = "ebpf", target_os = "linux")))]
+async fn load_and_run_ebpf(
+    _cli: &Cli,
+    _config: &AppConfig,
+    _state_store: Arc<Mutex<StateStore>>,
+    _cgroup_resolver: Arc<Mutex<cgroup::CgroupResolver>>,
+    _metrics: Metrics,
+    _event_stats: Arc<Mutex<ConsumerStats>>,
+    _shutdown: watch::Receiver<bool>,
+) -> Result<(Option<tokio::task::JoinHandle<()>>, Option<tokio::task::JoinHandle<()>>), ScannerError> {
+    // Stub: eBPF not available on this platform
+    warn!("eBPF not available on this platform, skipping");
+    Ok((None, None))
+}
+
 async fn run_analysis_pipeline(
     config: &AppConfig,
     sbom_store: SbomStore,
@@ -288,8 +324,7 @@ async fn run_analysis_pipeline(
         ticker.tick().await;
 
         let store = state_store.lock().await;
-        let resolver = cgroup_resolver.lock().await;
-
+        let mut resolver = cgroup_resolver.lock().await;
         // Process each cgroup workload
         for (cgroup_id, workload) in store.workloads() {
             // Resolve container ID
@@ -383,7 +418,7 @@ async fn ready_handler(State(state): State<AppState>) -> impl IntoResponse {
     } else {
         0.0
     };
-    
+
     if drop_rate > 0.1 {
         return (axum::http::StatusCode::SERVICE_UNAVAILABLE, "High event drop rate");
     }

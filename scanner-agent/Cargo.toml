@@ -5,8 +5,9 @@ edition.workspace = true
 license.workspace = true
 
 [features]
-default = ["ebpf"]
-ebpf = ["aya", "aya-log"]
+default = []
+ebpf = []
+remediator-proto = ["tonic"]
 
 [dependencies]
 anyhow.workspace = true
@@ -27,14 +28,14 @@ serde_yaml.workspace = true
 thiserror.workspace = true
 tokio.workspace = true
 tokio-stream.workspace = true
-tonic = "0.13"
+tonic = { version = "0.13", optional = true }
 tower = "0.5"
 tracing.workspace = true
 tracing-subscriber.workspace = true
 uuid.workspace = true
 
 # Linux-only eBPF dependencies
-[target.'cfg(all(target_os = "linux", feature = "ebpf"))'.dependencies]
+[target.'cfg(target_os = "linux")'.dependencies]
 aya = { workspace = true, optional = true }
 aya-log = { workspace = true, optional = true }
 
@@ -43,3 +44,4 @@ tokio-test = "0.4"
 
 [build-dependencies]
 tonic-build = "0.13"
+which = "7.0"

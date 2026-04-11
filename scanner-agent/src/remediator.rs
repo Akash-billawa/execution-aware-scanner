@@ -2,27 +2,39 @@ use crate::config::RiskConfig;
 use crate::error::ScannerError;
 use scanner_common::{Finding, Priority, SeccompProfile};
 use std::collections::BTreeSet;
-use std::net::SocketAddr;
 use std::time::Duration;
-use tonic::{transport::Channel, Request, Response, Status};
 
+// Conditionally compile protobuf code only if it was generated
+#[cfg(feature = "remediator-proto")]
 pub mod proto {
     tonic::include_proto!("remediator");
 }
 
+#[cfg(feature = "remediator-proto")]
 use proto::remediator_client::RemediatorClient;
+#[cfg(feature = "remediator-proto")]
 use proto::{
     BlockRequest, EnforcementAction, EnforcementRule, QuarantineRequest, RemediationRequest,
     SeccompProfileRequest, ThreatLevel,
 };
+#[cfg(feature = "remediator-proto")]
+use tonic::{transport::Channel, Request};
 
 #[derive(Clone)]
 pub struct RemediatorService {
+    #[cfg(feature = "remediator-proto")]
     client: Option<RemediatorClient<Channel>>,
+    #[cfg(not(feature = "remediator-proto"))]
+    client: Option<MockClient>,
     config: RiskConfig,
 }
 
+#[cfg(not(feature = "remediator-proto"))]
+#[derive(Clone)]
+struct MockClient;
+
 impl RemediatorService {
+    #[cfg(feature = "remediator-proto")]
     pub async fn connect(addr: &str) -> Result<Self, ScannerError> {
         let endpoint = format!("http://{}", addr);
         let client = RemediatorClient::connect(endpoint)
@@ -38,6 +50,13 @@ impl RemediatorService {
         })
     }
 
+    #[cfg(not(feature = "remediator-proto"))]
+    pub async fn connect(_addr: &str) -> Result<Self, ScannerError> {
+        // Protobuf not compiled, use mock
+        tracing::info!("Remediator protobuf not compiled, using mock");
+        Ok(Self::new_mock())
+    }
+
     pub fn new_mock() -> Self {
         Self {
             client: None,
@@ -48,6 +67,7 @@ impl RemediatorService {
         }
     }
 
+    #[cfg(feature = "remediator-proto")]
     pub async fn remediate_finding(&self, finding: &Finding) -> Result<(), ScannerError> {
         let Some(ref client) = self.client else {
             tracing::info!("Mock remediator: would remediate {}", finding.id);
@@ -85,6 +105,13 @@ impl RemediatorService {
         Ok(())
     }
 
+    #[cfg(not(feature = "remediator-proto"))]
+    pub async fn remediate_finding(&self, finding: &Finding) -> Result<(), ScannerError> {
+        tracing::info!("Mock remediator: would remediate {}", finding.id);
+        Ok(())
+    }
+
+    #[cfg(feature = "remediator-proto")]
     pub async fn enforce_seccomp(
         &self,
         workload: &str,
@@ -117,6 +144,17 @@ impl RemediatorService {
         Ok(())
     }
 
+    #[cfg(not(feature = "remediator-proto"))]
+    pub async fn enforce_seccomp(
+        &self,
+        workload: &str,
+        _profile: &SeccompProfile,
+    ) -> Result<(), ScannerError> {
+        tracing::info!("Mock remediator: would enforce seccomp for {}", workload);
+        Ok(())
+    }
+
+    #[cfg(feature = "remediator-proto")]
     pub async fn block_egress(&self, pod_name: &str, namespace: &str) -> Result<(), ScannerError> {
         let Some(ref client) = self.client else {
             tracing::info!("Mock remediator: would block egress for {}/{}", namespace, pod_name);
@@ -143,6 +181,13 @@ impl RemediatorService {
         Ok(())
     }
 
+    #[cfg(not(feature = "remediator-proto"))]
+    pub async fn block_egress(&self, pod_name: &str, namespace: &str) -> Result<(), ScannerError> {
+        tracing::info!("Mock remediator: would block egress for {}/{}", namespace, pod_name);
+        Ok(())
+    }
+
+    #[cfg(feature = "remediator-proto")]
     pub async fn quarantine_pod(
         &self,
         pod_name: &str,
@@ -173,8 +218,20 @@ impl RemediatorService {
 
         Ok(())
     }
+
+    #[cfg(not(feature = "remediator-proto"))]
+    pub async fn quarantine_pod(
+        &self,
+        pod_name: &str,
+        namespace: &str,
+        reason: &str,
+    ) -> Result<(), ScannerError> {
+        tracing::info!("Mock remediator: would quarantine {}/{}: {}", namespace, pod_name, reason);
+        Ok(())
+    }
 }
 
+#[cfg(feature = "remediator-proto")]
 fn priority_to_threat_level(priority: &Priority) -> i32 {
     match priority {
         Priority::Informational => 0,
@@ -183,6 +240,18 @@ fn priority_to_threat_level(priority: &Priority) -> i32 {
         Priority::High => 3,
         Priority::Critical => 4,
     }
+}
+
+#[cfg(not(feature = "remediator-proto"))]
+pub async fn remediate_finding_mock(finding: &Finding) -> Result<(), ScannerError> {
+    tracing::info!("Mock remediator: would remediate {}", finding.id);
+    Ok(())
+}
+
+#[cfg(not(feature = "remediator-proto"))]
+pub async fn enforce_seccomp_mock(workload: &str, _profile: &SeccompProfile) -> Result<(), ScannerError> {
+    tracing::info!("Mock remediator: would enforce seccomp for {}", workload);
+    Ok(())
 }
 
 #[cfg(test)]

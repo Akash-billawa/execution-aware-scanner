@@ -81,11 +81,11 @@ impl ExfRiskEngine {
     /// Evaluate a signal and produce a finding if it meets thresholds
     pub fn evaluate(&self, identity: RuntimeIdentity, signal: RiskSignal) -> Option<Finding> {
         // Check minimum thresholds
-        if signal.cvss < self.config.minimum_cvss && !signal.kev {
+        if signal.cvss < self.config.minimum_cvss as f32 && !signal.kev {
             return None;
         }
 
-        if signal.epss < self.config.minimum_epss && !signal.kev {
+        if signal.epss < self.config.minimum_epss as f32 && !signal.kev {
             return None;
         }
 
@@ -306,13 +306,13 @@ pub struct RiskSummary {
 }
 
 fn categorize_syscall(syscall: &str) -> String {
-    let categories: BTreeMap<&str, &[&str]> = [
-        ("memory", &["mmap", "munmap", "mprotect", "brk", "sbrk"]),
-        ("file", &["openat", "openat2", "read", "write", "close", "fstat", "lseek"]),
-        ("process", &["execve", "execveat", "clone", "fork", "vfork", "exit", "wait4"]),
-        ("network", &["socket", "connect", "bind", "listen", "accept", "sendto", "recvfrom"]),
-        ("signal", &["rt_sigaction", "rt_sigprocmask", "rt_sigreturn", "kill", "tkill"]),
-        ("time", &["clock_gettime", "gettimeofday", "nanosleep"]),
+    let categories: BTreeMap<&str, Vec<&str>> = [
+        ("memory", vec!["mmap", "munmap", "mprotect", "brk", "sbrk"]),
+        ("file", vec!["openat", "openat2", "read", "write", "close", "fstat", "lseek"]),
+        ("process", vec!["execve", "execveat", "clone", "fork", "vfork", "exit", "wait4"]),
+        ("network", vec!["socket", "connect", "bind", "listen", "accept", "sendto", "recvfrom"]),
+        ("signal", vec!["rt_sigaction", "rt_sigprocmask", "rt_sigreturn", "kill", "tkill"]),
+        ("time", vec!["clock_gettime", "gettimeofday", "nanosleep"]),
     ]
     .iter()
     .cloned()

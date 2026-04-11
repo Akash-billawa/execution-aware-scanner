@@ -33,8 +33,8 @@ pub struct IntelConfig {
 
 #[derive(Debug, Clone, Deserialize)]
 pub struct RiskConfig {
-    pub minimum_cvss: f32,
-    pub minimum_epss: f32,
+    pub minimum_cvss: f64,
+    pub minimum_epss: f64,
 }
 
 #[derive(Debug, Clone, Deserialize)]

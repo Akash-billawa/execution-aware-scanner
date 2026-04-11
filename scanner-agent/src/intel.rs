@@ -1,7 +1,7 @@
 use crate::config::IntelConfig;
 use crate::error::ScannerError;
 use chrono::{DateTime, Utc};
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
 use std::time::Duration;
@@ -9,7 +9,7 @@ use tokio::sync::RwLock;
 use tracing::{debug, error, info, warn};
 
 /// Comprehensive threat intelligence state
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct IntelState {
     /// CISA Known Exploited Vulnerabilities catalog
     pub kev: BTreeSet<String>,
@@ -26,7 +26,7 @@ pub struct IntelState {
 }
 
 /// CVE metadata from threat intelligence sources
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CveMetadata {
     pub id: String,
     pub description: Option<String>,
@@ -225,13 +225,13 @@ impl IntelFeed {
 
         debug!("Fetching EPSS for {} CVEs", cves.len());
 
-        let cve_list = cves.join(",");
-        let response = self
-            .client
-            .get(&self.config.epss_url)
-            .query(&[("cve", cve_list), ("scope", "epss")])
-            .send()
-            .await?;
+    let cve_list = cves.join(",");
+    let response = self
+        .client
+        .get(&self.config.epss_url)
+        .query(&[("cve", cve_list), ("scope", "epss".to_string())])
+        .send()
+        .await?;
 
         let data = response.json::<EpssResponse>().await?;
         
@@ -311,22 +311,41 @@ pub struct CveRiskAssessment {
     pub intel_age: Option<chrono::Duration>,
 }
 
+impl serde::Serialize for CveRiskAssessment {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        use serde::ser::SerializeStruct;
+        let mut state = serializer.serialize_struct("CveRiskAssessment", 5)?;
+        state.serialize_field("cve_id", &self.cve_id)?;
+        state.serialize_field("is_kev", &self.is_kev)?;
+        state.serialize_field("epss_score", &self.epss_score)?;
+        state.serialize_field("epss_percentile", &self.epss_percentile)?;
+        state.serialize_field(
+            "intel_age_hours",
+            &self.intel_age.map(|d| d.num_hours()),
+        )?;
+        state.end()
+    }
+}
+
 impl CveRiskAssessment {
     /// Combined threat score (0-100)
     pub fn threat_score(&self) -> f32 {
         let mut score = 0.0;
-        
+
         // EPSS contributes up to 40 points
-        score += self.epss * 40.0;
-        
+        score += self.epss_score * 40.0;
+
         // Percentile contributes up to 30 points
         score += self.epss_percentile * 30.0;
-        
+
         // KEV bonus: 30 points
         if self.is_kev {
             score += 30.0;
         }
-        
+
         score.min(100.0)
     }
 
