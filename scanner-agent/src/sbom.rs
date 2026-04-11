@@ -44,7 +44,10 @@ impl SbomStore {
         self.components_for_image(image)
             .into_iter()
             .map(|component| {
-                let reachable = component.paths.iter().any(|path| observed_paths.contains(path));
+                let reachable = component
+                    .paths
+                    .iter()
+                    .any(|path| observed_paths.contains(path));
                 let state = if reachable {
                     RuntimeDisposition::Reachable
                 } else {

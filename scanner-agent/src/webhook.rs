@@ -128,7 +128,11 @@ impl WebhookExporter {
                             error: None,
                         });
                     } else {
-                        let error = format!("HTTP {}: {}", status, response.text().await.unwrap_or_default());
+                        let error = format!(
+                            "HTTP {}: {}",
+                            status,
+                            response.text().await.unwrap_or_default()
+                        );
                         warn!("Webhook failed: {}", error);
                         last_error = Some(error);
 
@@ -205,7 +209,11 @@ impl WebhookExporter {
                             error: None,
                         });
                     } else {
-                        let error = format!("HTTP {}: {}", status, response.text().await.unwrap_or_default());
+                        let error = format!(
+                            "HTTP {}: {}",
+                            status,
+                            response.text().await.unwrap_or_default()
+                        );
                         warn!("Batch webhook failed: {}", error);
                         last_error = Some(error);
 
@@ -359,7 +367,11 @@ impl WebhookManager {
 
     /// Add webhook endpoint
     pub fn add_endpoint(&mut self, config: WebhookConfig) {
-        let exporter = WebhookExporter::new(config.clone(), self.scanner_id.clone(), self.node_name.clone());
+        let exporter = WebhookExporter::new(
+            config.clone(),
+            self.scanner_id.clone(),
+            self.node_name.clone(),
+        );
         self.exporters.push((exporter, config));
     }
 
@@ -395,7 +407,7 @@ impl WebhookManager {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use scanner_common::{Priority, RuntimeIdentity, RiskSignal, RuntimeDisposition};
+    use scanner_common::{Priority, RiskSignal, RuntimeDisposition, RuntimeIdentity};
     use std::collections::{BTreeMap, BTreeSet};
 
     fn create_test_finding(priority: Priority) -> Finding {

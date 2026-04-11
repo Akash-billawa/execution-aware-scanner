@@ -63,8 +63,8 @@ use kube::Client;
 use metrics::Metrics;
 use remediator::RemediatorService;
 use risk_engine::RiskEngine;
-use scanner_common::Finding;
 use sbom::SbomStore;
+use scanner_common::Finding;
 use state::StateStore;
 use std::collections::BTreeMap;
 use std::sync::Arc;
@@ -77,9 +77,9 @@ use tc_enforcer::{TcEnforcer, ThreatIntelFeed};
 
 // Stub types for non-eBPF
 #[cfg(not(feature = "ebpf"))]
-use tc_enforcer::{TcEnforcer, ThreatIntelFeed};
+use event_consumer::{ConsumerStats, EventConsumer};
 #[cfg(not(feature = "ebpf"))]
-use event_consumer::{EventConsumer, ConsumerStats};
+use tc_enforcer::{TcEnforcer, ThreatIntelFeed};
 
 use tokio::net::TcpListener;
 use tokio::sync::{watch, Mutex};
@@ -282,7 +282,13 @@ async fn load_and_run_ebpf(
     metrics: Metrics,
     event_stats: Arc<Mutex<event_consumer::ConsumerStats>>,
     shutdown: watch::Receiver<bool>,
-) -> Result<(Option<tokio::task::JoinHandle<()>>, Option<tokio::task::JoinHandle<()>>), ScannerError> {
+) -> Result<
+    (
+        Option<tokio::task::JoinHandle<()>>,
+        Option<tokio::task::JoinHandle<()>>,
+    ),
+    ScannerError,
+> {
     // Load eBPF
     let mut loader = bpf_loader::BpfLoader::new(&config.bpf.object_path)?;
 
@@ -310,7 +316,10 @@ async fn load_and_run_ebpf(
 
     // Start event consumer
     let event_handle = tokio::spawn(async move {
-        if let Err(e) = consumer.run(state_store, cgroup_resolver, metrics, shutdown).await {
+        if let Err(e) = consumer
+            .run(state_store, cgroup_resolver, metrics, shutdown)
+            .await
+        {
             error!("Event consumer error: {}", e);
         }
     });
@@ -327,7 +336,13 @@ async fn load_and_run_ebpf(
     _metrics: Metrics,
     _event_stats: Arc<Mutex<ConsumerStats>>,
     _shutdown: watch::Receiver<bool>,
-) -> Result<(Option<tokio::task::JoinHandle<()>>, Option<tokio::task::JoinHandle<()>>), ScannerError> {
+) -> Result<
+    (
+        Option<tokio::task::JoinHandle<()>>,
+        Option<tokio::task::JoinHandle<()>>,
+    ),
+    ScannerError,
+> {
     // Stub: eBPF not available on this platform
     warn!("eBPF not available on this platform, skipping");
     Ok((None, None))
@@ -362,10 +377,8 @@ async fn run_analysis_pipeline(
                     let intel_state = intel_state.read().await;
 
                     // Classify runtime paths against SBOM
-                    let components = sbom_store.classify_runtime_paths(
-                        &identity.image,
-                        &workload.observed_paths,
-                    );
+                    let components = sbom_store
+                        .classify_runtime_paths(&identity.image, &workload.observed_paths);
 
                     for (component, runtime) in components {
                         for cve in component.cves {
@@ -397,10 +410,15 @@ async fn run_analysis_pipeline(
                                     // Generate and enforce seccomp profile
                                     let seccomp = risk_engine
                                         .build_seccomp_profile(workload.observed_syscalls.clone());
-                                    if let Err(e) = persist_seccomp(config, &identity.workload, &seccomp).await {
+                                    if let Err(e) =
+                                        persist_seccomp(config, &identity.workload, &seccomp).await
+                                    {
                                         warn!("Failed to persist seccomp: {}", e);
                                     }
-                                    if let Err(e) = remediator.enforce_seccomp(&identity.workload, &seccomp).await {
+                                    if let Err(e) = remediator
+                                        .enforce_seccomp(&identity.workload, &seccomp)
+                                        .await
+                                    {
                                         warn!("Failed to enforce seccomp: {}", e);
                                     }
                                 }
@@ -447,7 +465,10 @@ async fn ready_handler(State(state): State<AppState>) -> impl IntoResponse {
     };
 
     if drop_rate > 0.1 {
-        return (axum::http::StatusCode::SERVICE_UNAVAILABLE, "High event drop rate");
+        return (
+            axum::http::StatusCode::SERVICE_UNAVAILABLE,
+            "High event drop rate",
+        );
     }
     (axum::http::StatusCode::OK, "Ready")
 }
@@ -514,18 +535,19 @@ async fn run_degraded_pipeline(
     };
     state_store.apply_net(&net);
 
-    let identity = pod_cache
-        .lookup("demo-container")
-        .await
-        .unwrap_or(scanner_common::RuntimeIdentity {
-            node_name: "node-a".to_string(),
-            namespace: "default".to_string(),
-            pod_name: "demo-pod".to_string(),
-            container_name: "app".to_string(),
-            image: "demo/app:1.0".to_string(),
-            workload: "demo".to_string(),
-            labels: BTreeMap::new(),
-        });
+    let identity =
+        pod_cache
+            .lookup("demo-container")
+            .await
+            .unwrap_or(scanner_common::RuntimeIdentity {
+                node_name: "node-a".to_string(),
+                namespace: "default".to_string(),
+                pod_name: "demo-pod".to_string(),
+                container_name: "app".to_string(),
+                image: "demo/app:1.0".to_string(),
+                workload: "demo".to_string(),
+                labels: BTreeMap::new(),
+            });
 
     let workload_state = state_store.workload(9001).cloned().unwrap_or_default();
     let observed_paths = workload_state.observed_paths.clone();

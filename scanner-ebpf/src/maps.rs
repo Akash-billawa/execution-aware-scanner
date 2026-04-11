@@ -49,8 +49,7 @@ pub static mut CGROUP_STATS: HashMap<u64, CgroupStats> =
 
 // Syscall allowlist per cgroup (for seccomp-style enforcement)
 #[map(name = "CGROUP_SYSCALLS")]
-pub static mut CGROUP_SYSCALLS: HashMap<u64, u64> =
-    HashMap::<u64, u64>::with_max_entries(8192, 0);
+pub static mut CGROUP_SYSCALLS: HashMap<u64, u64> = HashMap::<u64, u64>::with_max_entries(8192, 0);
 
 // Process tracking
 #[map(name = "PROCESS_PARENT")]
@@ -127,13 +126,13 @@ pub unsafe fn is_syscall_allowed(cgroup_id: u64, syscall_mask: u64) -> bool {
 
 pub unsafe fn check_rate_limit(key: u64, interval_ns: u64) -> bool {
     let now = aya_bpf::helpers::bpf_ktime_get_ns();
-    
+
     if let Some(last) = ALERT_TIMESTAMPS.get(&key) {
         if now - *last < interval_ns {
             return false; // Rate limited
         }
     }
-    
+
     let _ = ALERT_TIMESTAMPS.insert(&key, &now, 0);
     true
 }

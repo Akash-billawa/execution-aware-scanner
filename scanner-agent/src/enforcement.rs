@@ -132,59 +132,63 @@ impl EnforcementController {
         workload_id: &str,
     ) -> Result<serde_json::Value, ScannerError> {
         let baselines = self.syscall_baselines.read().await;
-        let syscalls = baselines
-            .get(workload_id)
-            .cloned()
-            .unwrap_or_default();
+        let syscalls = baselines.get(workload_id).cloned().unwrap_or_default();
         drop(baselines);
 
         if syscalls.is_empty() {
             warn!("No syscall baseline for {}, using default", workload_id);
         }
 
-    // Essential syscalls that must always be allowed
-    let mut allowed_syscalls: BTreeSet<String> = [
-        "exit", "exit_group", "rt_sigreturn", "sigreturn",
-        "brk", "mmap", "munmap", "mprotect",
-        "arch_prctl", "set_tid_address",
-    ]
-    .iter()
-    .cloned()
-    .map(|s| s.to_string())
-    .collect();
+        // Essential syscalls that must always be allowed
+        let mut allowed_syscalls: BTreeSet<String> = [
+            "exit",
+            "exit_group",
+            "rt_sigreturn",
+            "sigreturn",
+            "brk",
+            "mmap",
+            "munmap",
+            "mprotect",
+            "arch_prctl",
+            "set_tid_address",
+        ]
+        .iter()
+        .cloned()
+        .map(|s| s.to_string())
+        .collect();
 
         // Merge with observed syscalls
         allowed_syscalls.extend(syscalls);
 
-    // Build syscall groups for better readability
-    let mut categories: BTreeMap<String, Vec<String>> = BTreeMap::new();
-    for syscall in &allowed_syscalls {
-        let category = categorize_syscall(syscall);
-        categories
-            .entry(category)
-            .or_default()
-            .push(syscall.clone());
-    }
-
-    // Collect syscalls into a Vec<String> before the json! macro
-    let syscall_count = allowed_syscalls.len();
-    let names: Vec<String> = allowed_syscalls.clone().into_iter().collect();
-
-    let profile = serde_json::json!({
-        "defaultAction": "SCMP_ACT_ERRNO",
-        "architectures": ["SCMP_ARCH_X86_64", "SCMP_ARCH_X86", "SCMP_ARCH_AARCH64"],
-        "syscalls": [{
-            "names": names,
-            "action": "SCMP_ACT_ALLOW"
-        }],
-        "categories": categories,
-        "metadata": {
-            "generated_by": "execution-aware-scanner",
-            "generated_at": chrono::Utc::now().to_rfc3339(),
-            "workload_id": workload_id,
-            "syscall_count": syscall_count,
+        // Build syscall groups for better readability
+        let mut categories: BTreeMap<String, Vec<String>> = BTreeMap::new();
+        for syscall in &allowed_syscalls {
+            let category = categorize_syscall(syscall);
+            categories
+                .entry(category)
+                .or_default()
+                .push(syscall.clone());
         }
-    });
+
+        // Collect syscalls into a Vec<String> before the json! macro
+        let syscall_count = allowed_syscalls.len();
+        let names: Vec<String> = allowed_syscalls.clone().into_iter().collect();
+
+        let profile = serde_json::json!({
+            "defaultAction": "SCMP_ACT_ERRNO",
+            "architectures": ["SCMP_ARCH_X86_64", "SCMP_ARCH_X86", "SCMP_ARCH_AARCH64"],
+            "syscalls": [{
+                "names": names,
+                "action": "SCMP_ACT_ALLOW"
+            }],
+            "categories": categories,
+            "metadata": {
+                "generated_by": "execution-aware-scanner",
+                "generated_at": chrono::Utc::now().to_rfc3339(),
+                "workload_id": workload_id,
+                "syscall_count": syscall_count,
+            }
+        });
 
         info!(
             "Generated seccomp profile for {} with {} syscalls",
@@ -302,7 +306,11 @@ impl EnforcementController {
         isolate_network: bool,
         isolate_storage: bool,
     ) -> Result<EnforcementStatus, ScannerError> {
-        let rule_id = format!("quarantine-{}-{}", finding.identity.workload, chrono::Utc::now().timestamp());
+        let rule_id = format!(
+            "quarantine-{}-{}",
+            finding.identity.workload,
+            chrono::Utc::now().timestamp()
+        );
 
         let status = EnforcementStatus {
             rule_id: rule_id.clone(),
@@ -314,10 +322,7 @@ impl EnforcementController {
 
         info!(
             "Quarantining {}/{}: network={}, storage={}",
-            finding.identity.namespace,
-            finding.identity.workload,
-            isolate_network,
-            isolate_storage
+            finding.identity.namespace, finding.identity.workload, isolate_network, isolate_storage
         );
 
         // Mock quarantine
@@ -351,7 +356,10 @@ impl EnforcementController {
 
             let result = match action {
                 EnforcementAction::GenerateSeccomp => {
-                    match self.generate_seccomp_profile(&finding.identity.workload).await {
+                    match self
+                        .generate_seccomp_profile(&finding.identity.workload)
+                        .await
+                    {
                         Ok(_) => EnforcementStatus {
                             rule_id: format!("gen-{}-{}", finding.id, action as u8),
                             action,
@@ -368,11 +376,8 @@ impl EnforcementController {
                         },
                     }
                 }
-                EnforcementAction::ApplySeccomp => {
-                    self.apply_seccomp(
-                        &finding.identity.workload,
-                        &finding.identity.namespace,
-                    )
+                EnforcementAction::ApplySeccomp => self
+                    .apply_seccomp(&finding.identity.workload, &finding.identity.namespace)
                     .await
                     .unwrap_or_else(|e| EnforcementStatus {
                         rule_id: format!("app-{}-{}", finding.id, action as u8),
@@ -380,10 +385,9 @@ impl EnforcementController {
                         status: EnforcementStatusType::Failed,
                         applied_at: None,
                         error: Some(e.to_string()),
-                    })
-                }
-                EnforcementAction::BlockEgress => {
-                    self.block_egress(
+                    }),
+                EnforcementAction::BlockEgress => self
+                    .block_egress(
                         &finding.identity.workload,
                         &finding.identity.namespace,
                         Duration::from_secs(3600),
@@ -395,8 +399,7 @@ impl EnforcementController {
                         status: EnforcementStatusType::Failed,
                         applied_at: None,
                         error: Some(e.to_string()),
-                    })
-                }
+                    }),
                 _ => EnforcementStatus {
                     rule_id: format!("notify-{}-{}", finding.id, action as u8),
                     action,
@@ -428,11 +431,52 @@ impl EnforcementController {
 fn categorize_syscall(syscall: &str) -> String {
     let categories: HashMap<&str, Vec<&str>> = [
         ("memory", vec!["mmap", "munmap", "mprotect", "brk", "sbrk"]),
-        ("file", vec!["openat", "openat2", "read", "write", "close", "fstat", "lseek", "access"]),
-        ("process", vec!["execve", "execveat", "clone", "fork", "vfork", "exit", "wait4", "getpid"]),
-        ("network", vec!["socket", "connect", "bind", "listen", "accept", "sendto", "recvfrom", "setsockopt"]),
-        ("signal", vec!["rt_sigaction", "rt_sigprocmask", "rt_sigreturn", "kill", "tkill", "tgkill"]),
-        ("time", vec!["clock_gettime", "gettimeofday", "nanosleep", "alarm", "timer_create"]),
+        (
+            "file",
+            vec![
+                "openat", "openat2", "read", "write", "close", "fstat", "lseek", "access",
+            ],
+        ),
+        (
+            "process",
+            vec![
+                "execve", "execveat", "clone", "fork", "vfork", "exit", "wait4", "getpid",
+            ],
+        ),
+        (
+            "network",
+            vec![
+                "socket",
+                "connect",
+                "bind",
+                "listen",
+                "accept",
+                "sendto",
+                "recvfrom",
+                "setsockopt",
+            ],
+        ),
+        (
+            "signal",
+            vec![
+                "rt_sigaction",
+                "rt_sigprocmask",
+                "rt_sigreturn",
+                "kill",
+                "tkill",
+                "tgkill",
+            ],
+        ),
+        (
+            "time",
+            vec![
+                "clock_gettime",
+                "gettimeofday",
+                "nanosleep",
+                "alarm",
+                "timer_create",
+            ],
+        ),
     ]
     .iter()
     .cloned()
@@ -478,16 +522,16 @@ mod tests {
     #[tokio::test]
     async fn test_syscall_baseline_recording() {
         let controller = EnforcementController::new(create_test_config());
-        
-        let syscalls: BTreeSet<String> = [
-            "openat", "read", "write", "mmap", "execve"
-        ]
-        .iter()
-        .map(|s| s.to_string())
-        .collect();
 
-        controller.record_syscalls("test-workload", syscalls.clone()).await;
-        
+        let syscalls: BTreeSet<String> = ["openat", "read", "write", "mmap", "execve"]
+            .iter()
+            .map(|s| s.to_string())
+            .collect();
+
+        controller
+            .record_syscalls("test-workload", syscalls.clone())
+            .await;
+
         let baseline = controller.get_syscall_baseline("test-workload").await;
         assert_eq!(baseline, Some(syscalls));
     }
@@ -495,17 +539,18 @@ mod tests {
     #[tokio::test]
     async fn test_seccomp_generation() {
         let controller = EnforcementController::new(create_test_config());
-        
-        let syscalls: BTreeSet<String> = [
-            "openat", "read", "write", "mmap", "execve"
-        ]
-        .iter()
-        .map(|s| s.to_string())
-        .collect();
+
+        let syscalls: BTreeSet<String> = ["openat", "read", "write", "mmap", "execve"]
+            .iter()
+            .map(|s| s.to_string())
+            .collect();
 
         controller.record_syscalls("test-workload", syscalls).await;
-        
-        let profile = controller.generate_seccomp_profile("test-workload").await.unwrap();
+
+        let profile = controller
+            .generate_seccomp_profile("test-workload")
+            .await
+            .unwrap();
         assert!(profile.get("syscalls").is_some());
     }
 

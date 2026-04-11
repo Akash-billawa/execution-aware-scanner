@@ -262,7 +262,7 @@ unsafe fn emit_connect_v6(ctx: &KProbeContext, kind: EventKind) -> Result<u32, i
         daddr: 0,
         sport: 0,
         dport: 0,
-        family: 10, // AF_INET6
+        family: 10,  // AF_INET6
         protocol: 6, // TCP
         kind,
     };

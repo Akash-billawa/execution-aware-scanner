@@ -24,12 +24,19 @@ impl EventKind {
     pub fn is_network(&self) -> bool {
         matches!(
             self,
-            EventKind::Connect | EventKind::Bind | EventKind::Close | EventKind::UdpSend | EventKind::UdpRecv
+            EventKind::Connect
+                | EventKind::Bind
+                | EventKind::Close
+                | EventKind::UdpSend
+                | EventKind::UdpRecv
         )
     }
 
     pub fn is_file(&self) -> bool {
-        matches!(self, EventKind::Open | EventKind::Mmap | EventKind::Mprotect)
+        matches!(
+            self,
+            EventKind::Open | EventKind::Mmap | EventKind::Mprotect
+        )
     }
 
     pub fn is_exec(&self) -> bool {

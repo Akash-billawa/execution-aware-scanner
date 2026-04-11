@@ -63,9 +63,13 @@ impl TcEnforcer {
     }
 
     /// Block IP address via XDP
-    pub async fn block_ip(&mut self, ip: Ipv4Addr, reason: &str) -> Result<EnforcementResult, ScannerError> {
+    pub async fn block_ip(
+        &mut self,
+        ip: Ipv4Addr,
+        reason: &str,
+    ) -> Result<EnforcementResult, ScannerError> {
         let ip_u32 = u32::from(ip);
-        
+
         if let Some(ref mut bpf) = self.bpf {
             // Update XDP blocked IPs map
             let mut xdp_blocked: BpfHashMap<_, u32, u8> = bpf
@@ -98,7 +102,10 @@ impl TcEnforcer {
         info!("Blocked IP {} via XDP/TC: {}", ip, reason);
 
         Ok(EnforcementResult {
-            rule: TrafficRule::BlockIp { ip, reason: reason.to_string() },
+            rule: TrafficRule::BlockIp {
+                ip,
+                reason: reason.to_string(),
+            },
             applied: true,
             error: None,
         })
@@ -143,22 +150,20 @@ impl TcEnforcer {
 
         for indicator in indicators {
             match indicator {
-                C2Indicator::Ip(ip) => {
-                    match self.block_ip(*ip, "C2 indicator").await {
-                        Ok(result) => results.push(result),
-                        Err(e) => {
-                            error!("Failed to block C2 IP {}: {}", ip, e);
-                            results.push(EnforcementResult {
-                                rule: TrafficRule::BlockIp {
-                                    ip: *ip,
-                                    reason: "C2 indicator".to_string(),
-                                },
-                                applied: false,
-                                error: Some(e.to_string()),
-                            });
-                        }
+                C2Indicator::Ip(ip) => match self.block_ip(*ip, "C2 indicator").await {
+                    Ok(result) => results.push(result),
+                    Err(e) => {
+                        error!("Failed to block C2 IP {}: {}", ip, e);
+                        results.push(EnforcementResult {
+                            rule: TrafficRule::BlockIp {
+                                ip: *ip,
+                                reason: "C2 indicator".to_string(),
+                            },
+                            applied: false,
+                            error: Some(e.to_string()),
+                        });
                     }
-                }
+                },
                 C2Indicator::Domain(domain) => {
                     self.blocked_domains.insert(domain.clone());
                     // DNS blocking requires additional setup
@@ -207,7 +212,10 @@ impl TcEnforcer {
         let weak_bpf = self.bpf.as_ref().map(|_| ()); // Can't easily clone, but we show the pattern
         tokio::spawn(async move {
             tokio::time::sleep(duration).await;
-            info!("Auto-unquarantine cgroup {} after {:?}", cgroup_id_for_unquarantine, duration);
+            info!(
+                "Auto-unquarantine cgroup {} after {:?}",
+                cgroup_id_for_unquarantine, duration
+            );
             // In real implementation, would need access to BPF handle
         });
 
@@ -272,7 +280,7 @@ impl TcEnforcer {
         self.blocked_ips.clear();
         self.blocked_ports.clear();
         self.blocked_domains.clear();
-        
+
         info!("Flushed all TC/XDP enforcement rules");
         Ok(())
     }
@@ -280,7 +288,11 @@ impl TcEnforcer {
     /// Export current rules
     pub fn export_rules(&self) -> TrafficRules {
         TrafficRules {
-            blocked_ips: self.blocked_ips.iter().map(|&ip| Ipv4Addr::from(ip)).collect(),
+            blocked_ips: self
+                .blocked_ips
+                .iter()
+                .map(|&ip| Ipv4Addr::from(ip))
+                .collect(),
             blocked_ports: self.blocked_ports.iter().cloned().collect(),
             blocked_domains: self.blocked_domains.iter().cloned().collect(),
             last_updated: self.last_update,
@@ -325,7 +337,7 @@ impl ThreatIntelFeed {
     pub async fn update(&mut self) -> Result<usize, ScannerError> {
         // Mock update from threat intel
         // In production, fetch from MISP, ThreatConnect, etc.
-        
+
         let new_indicators = vec![
             C2Indicator::Ip(Ipv4Addr::new(192, 168, 100, 1)),
             C2Indicator::Domain("evil-c2.example.com".to_string()),
@@ -333,19 +345,24 @@ impl ThreatIntelFeed {
         ];
 
         let count = new_indicators.len();
-        
+
         for indicator in new_indicators {
             match indicator {
-                C2Indicator::Ip(ip) => { self.known_bad_ips.insert(ip); }
-                C2Indicator::Domain(d) => { self.known_bad_domains.insert(d); }
+                C2Indicator::Ip(ip) => {
+                    self.known_bad_ips.insert(ip);
+                }
+                C2Indicator::Domain(d) => {
+                    self.known_bad_domains.insert(d);
+                }
                 C2Indicator::Port(p) => { /* Ports handled separately */ }
             }
         }
 
         self.last_update = Some(Instant::now());
-        
-        info!("Updated threat intel: {} bad IPs, {} bad domains", 
-            self.known_bad_ips.len(), 
+
+        info!(
+            "Updated threat intel: {} bad IPs, {} bad domains",
+            self.known_bad_ips.len(),
             self.known_bad_domains.len()
         );
 
@@ -364,13 +381,16 @@ impl ThreatIntelFeed {
 
     /// Get indicators as C2Indicator list
     pub fn get_indicators(&self) -> Vec<C2Indicator> {
-        let mut indicators: Vec<_> = self.known_bad_ips.iter()
+        let mut indicators: Vec<_> = self
+            .known_bad_ips
+            .iter()
             .map(|&ip| C2Indicator::Ip(ip))
             .collect();
-        
+
         indicators.extend(
-            self.known_bad_domains.iter()
-                .map(|d| C2Indicator::Domain(d.clone()))
+            self.known_bad_domains
+                .iter()
+                .map(|d| C2Indicator::Domain(d.clone())),
         );
 
         indicators
@@ -384,11 +404,11 @@ mod tests {
     #[tokio::test]
     async fn test_ip_blocking_mock() {
         let mut enforcer = TcEnforcer::new();
-        
+
         let result = enforcer
             .block_ip(Ipv4Addr::new(192, 168, 1, 100), "Test block")
             .await;
-        
+
         // Will fail without real BPF, but pattern is correct
         assert!(result.is_err()); // Expected without BPF
     }
@@ -407,11 +427,11 @@ mod tests {
     #[test]
     fn test_threat_intel() {
         let mut feed = ThreatIntelFeed::new();
-        
+
         // Manually add for testing
         feed.known_bad_ips.insert(Ipv4Addr::new(10, 0, 0, 1));
         feed.known_bad_domains.insert("malware.com".to_string());
-        
+
         assert!(feed.is_known_bad(&Ipv4Addr::new(10, 0, 0, 1)));
         assert!(feed.is_known_bad_domain("sub.malware.com"));
         assert!(!feed.is_known_bad(&Ipv4Addr::new(8, 8, 8, 8)));

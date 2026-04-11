@@ -19,17 +19,17 @@ pub struct EventConsumer {
     exec_rb: RingBuf<MapData>,
     file_rb: RingBuf<MapData>,
     net_rb: RingBuf<MapData>,
-    
+
     // Buffers for batching
     exec_batch: Vec<ExecEvent>,
     file_batch: Vec<FileEvent>,
     net_batch: Vec<NetEvent>,
-    
+
     // Configuration
     batch_size: usize,
     batch_timeout: Duration,
     last_flush: Instant,
-    
+
     // Performance tracking
     events_received: u64,
     events_dropped: u64,
@@ -83,7 +83,8 @@ impl EventConsumer {
 
             // Check if we need to flush based on time
             if self.last_flush.elapsed() >= self.batch_timeout {
-                self.flush_all(state_store.clone(), cgroup_resolver.clone(), metrics).await?;
+                self.flush_all(state_store.clone(), cgroup_resolver.clone(), metrics)
+                    .await?;
             }
 
             // Small yield if no events to avoid busy looping
@@ -93,7 +94,8 @@ impl EventConsumer {
         }
 
         // Final flush
-        self.flush_all(state_store, cgroup_resolver, metrics).await?;
+        self.flush_all(state_store, cgroup_resolver, metrics)
+            .await?;
 
         Ok(total_events)
     }
@@ -109,7 +111,7 @@ impl EventConsumer {
         info!("Event consumer started");
 
         let mut interval = tokio::time::interval(Duration::from_millis(10));
-        
+
         loop {
             tokio::select! {
                 _ = interval.tick() => {
@@ -119,21 +121,21 @@ impl EventConsumer {
                     let _ = self.consume_net_batch(&state_store, &metrics).await;
 
                     // Check flush condition
-                    if self.last_flush.elapsed() >= self.batch_timeout 
+                    if self.last_flush.elapsed() >= self.batch_timeout
                         || self.exec_batch.len() >= self.batch_size
                         || self.file_batch.len() >= self.batch_size
                         || self.net_batch.len() >= self.batch_size {
-                        
+
                         if let Err(e) = self.flush_all(
-                            state_store.clone(), 
-                            cgroup_resolver.clone(), 
+                            state_store.clone(),
+                            cgroup_resolver.clone(),
                             &metrics
                         ).await {
                             error!(error = %e, "Failed to flush event batches");
                         }
                     }
                 }
-                
+
                 _ = shutdown.changed() => {
                     if *shutdown.borrow() {
                         info!("Shutdown signal received, flushing remaining events");
@@ -164,7 +166,7 @@ impl EventConsumer {
 
         while let Some(data) = self.exec_rb.next() {
             self.events_received += 1;
-            
+
             match self.parse_exec_event(&data) {
                 Some(event) => {
                     // Apply filtering
@@ -292,15 +294,18 @@ impl EventConsumer {
         let net_count = self.net_batch.len();
 
         // Process batches
-        self.process_exec_batch(&state_store, &cgroup_resolver).await?;
-        self.process_file_batch(&state_store, &cgroup_resolver).await?;
-        self.process_net_batch(&state_store, &cgroup_resolver).await?;
+        self.process_exec_batch(&state_store, &cgroup_resolver)
+            .await?;
+        self.process_file_batch(&state_store, &cgroup_resolver)
+            .await?;
+        self.process_net_batch(&state_store, &cgroup_resolver)
+            .await?;
 
         // Clear batches
         self.exec_batch.clear();
         self.file_batch.clear();
         self.net_batch.clear();
-        
+
         self.last_flush = Instant::now();
         self.batches_processed += 1;
 
@@ -323,7 +328,7 @@ impl EventConsumer {
     ) -> Result<(), ScannerError> {
         for event in &self.exec_batch {
             let cgroup_id = event.cgroup_id;
-            
+
             // Resolve container ID
             let mut resolver = cgroup_resolver.lock().await;
             if let Some((container_id, _pid)) = resolver.resolve(cgroup_id).await {
@@ -347,7 +352,7 @@ impl EventConsumer {
     ) -> Result<(), ScannerError> {
         for event in &self.file_batch {
             let path = c_string(&event.path);
-            
+
             // Check for sensitive paths
             if is_sensitive_path(&path) {
                 debug!(
@@ -406,11 +411,19 @@ impl EventConsumer {
     // Filtering logic
     fn should_filter_exec(&self, event: &ExecEvent) -> bool {
         let command = c_string(&event.command);
-        
+
         // Filter out known system processes
         let system_procs: BTreeSet<&str> = [
-            "kworker", "ksoftirqd", "migration", "rcu_gp", "rcu_par_gp",
-            "kthre", "systemd", "dbus-daemon", "networkd", "resolved",
+            "kworker",
+            "ksoftirqd",
+            "migration",
+            "rcu_gp",
+            "rcu_par_gp",
+            "kthre",
+            "systemd",
+            "dbus-daemon",
+            "networkd",
+            "resolved",
         ]
         .iter()
         .cloned()
@@ -426,7 +439,7 @@ impl EventConsumer {
 
     fn should_filter_file(&self, event: &FileEvent) -> bool {
         let path = c_string(&event.path);
-        
+
         // Filter temporary files
         if path.starts_with("/tmp/") || path.starts_with("/var/tmp/") {
             // Still track mmap of shared libraries in tmp
@@ -483,8 +496,12 @@ pub struct ConsumerStats {
 
 fn is_sensitive_path(path: &str) -> bool {
     let sensitive_paths: BTreeSet<&str> = [
-        "/etc/passwd", "/etc/shadow", "/etc/ssh",
-        "/.dockerenv", "/.kube", "/var/run/secrets",
+        "/etc/passwd",
+        "/etc/shadow",
+        "/etc/ssh",
+        "/.dockerenv",
+        "/.kube",
+        "/var/run/secrets",
     ]
     .iter()
     .cloned()
@@ -496,7 +513,7 @@ fn is_sensitive_path(path: &str) -> bool {
 fn is_suspicious_destination(addr: u32, port: u16) -> bool {
     // Check for common C2 ports
     let suspicious_ports: BTreeSet<u16> = [
-        4444, 5555, 6666, 8888, 9999, // Common malware ports
+        4444, 5555, 6666, 8888, 9999,  // Common malware ports
         31337, // Classic
     ]
     .iter()

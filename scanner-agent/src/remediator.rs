@@ -157,7 +157,11 @@ impl RemediatorService {
     #[cfg(feature = "remediator-proto")]
     pub async fn block_egress(&self, pod_name: &str, namespace: &str) -> Result<(), ScannerError> {
         let Some(ref client) = self.client else {
-            tracing::info!("Mock remediator: would block egress for {}/{}", namespace, pod_name);
+            tracing::info!(
+                "Mock remediator: would block egress for {}/{}",
+                namespace,
+                pod_name
+            );
             return Ok(());
         };
 
@@ -183,7 +187,11 @@ impl RemediatorService {
 
     #[cfg(not(feature = "remediator-proto"))]
     pub async fn block_egress(&self, pod_name: &str, namespace: &str) -> Result<(), ScannerError> {
-        tracing::info!("Mock remediator: would block egress for {}/{}", namespace, pod_name);
+        tracing::info!(
+            "Mock remediator: would block egress for {}/{}",
+            namespace,
+            pod_name
+        );
         Ok(())
     }
 
@@ -195,7 +203,12 @@ impl RemediatorService {
         reason: &str,
     ) -> Result<(), ScannerError> {
         let Some(ref client) = self.client else {
-            tracing::info!("Mock remediator: would quarantine {}/{}: {}", namespace, pod_name, reason);
+            tracing::info!(
+                "Mock remediator: would quarantine {}/{}: {}",
+                namespace,
+                pod_name,
+                reason
+            );
             return Ok(());
         };
 
@@ -226,7 +239,12 @@ impl RemediatorService {
         namespace: &str,
         reason: &str,
     ) -> Result<(), ScannerError> {
-        tracing::info!("Mock remediator: would quarantine {}/{}: {}", namespace, pod_name, reason);
+        tracing::info!(
+            "Mock remediator: would quarantine {}/{}: {}",
+            namespace,
+            pod_name,
+            reason
+        );
         Ok(())
     }
 }
@@ -249,7 +267,10 @@ pub async fn remediate_finding_mock(finding: &Finding) -> Result<(), ScannerErro
 }
 
 #[cfg(not(feature = "remediator-proto"))]
-pub async fn enforce_seccomp_mock(workload: &str, _profile: &SeccompProfile) -> Result<(), ScannerError> {
+pub async fn enforce_seccomp_mock(
+    workload: &str,
+    _profile: &SeccompProfile,
+) -> Result<(), ScannerError> {
     tracing::info!("Mock remediator: would enforce seccomp for {}", workload);
     Ok(())
 }

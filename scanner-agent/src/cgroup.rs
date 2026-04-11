@@ -139,18 +139,12 @@ mod tests {
     #[test]
     fn extracts_kubepods_id() {
         let path = "/kubepods/burstable/pod12345/abc123def456";
-        assert_eq!(
-            extract_container_id(path),
-            Some("abc123def456".to_string())
-        );
+        assert_eq!(extract_container_id(path), Some("abc123def456".to_string()));
     }
 
     #[test]
     fn extracts_containerd_id() {
         let path = "/system.slice/containerd-a1b2c3d4.scope";
-        assert_eq!(
-            extract_container_id(path),
-            Some("a1b2c3d4".to_string())
-        );
+        assert_eq!(extract_container_id(path), Some("a1b2c3d4".to_string()));
     }
 }

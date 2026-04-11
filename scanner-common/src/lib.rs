@@ -171,7 +171,7 @@ impl<'de> serde::Deserialize<'de> for ExecEvent {
             #[serde(with = "serde_bytes")]
             argv: Vec<u8>,
         }
-        
+
         let helper = ExecEventHelper::deserialize(deserializer)?;
         let mut event = ExecEvent {
             timestamp_ns: helper.timestamp_ns,
@@ -184,14 +184,14 @@ impl<'de> serde::Deserialize<'de> for ExecEvent {
             command: [0u8; 16],
             argv: [0u8; ARGS_LEN],
         };
-        
+
         if helper.command.len() == 16 {
             event.command.copy_from_slice(&helper.command);
         }
         if helper.argv.len() == ARGS_LEN {
             event.argv.copy_from_slice(&helper.argv);
         }
-        
+
         Ok(event)
     }
 }
@@ -231,7 +231,7 @@ impl<'de> serde::Deserialize<'de> for FileEvent {
             path: Vec<u8>,
             kind: EventKind,
         }
-        
+
         let helper = FileEventHelper::deserialize(deserializer)?;
         let mut event = FileEvent {
             timestamp_ns: helper.timestamp_ns,
@@ -242,14 +242,14 @@ impl<'de> serde::Deserialize<'de> for FileEvent {
             path: [0u8; PATH_LEN],
             kind: helper.kind,
         };
-        
+
         if helper.command.len() == 16 {
             event.command.copy_from_slice(&helper.command);
         }
         if helper.path.len() == PATH_LEN {
             event.path.copy_from_slice(&helper.path);
         }
-        
+
         Ok(event)
     }
 }
@@ -295,7 +295,7 @@ impl<'de> serde::Deserialize<'de> for NetEvent {
             protocol: u8,
             kind: EventKind,
         }
-        
+
         let helper = NetEventHelper::deserialize(deserializer)?;
         Ok(NetEvent {
             timestamp_ns: helper.timestamp_ns,

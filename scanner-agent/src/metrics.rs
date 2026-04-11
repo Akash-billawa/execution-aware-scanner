@@ -24,9 +24,21 @@ impl Metrics {
         let events_total = Counter::default();
         let findings_total = Family::<FindingLabels, Counter>::default();
         let dropped_events = Gauge::default();
-        registry.register("scanner_events_total", "Total runtime events ingested", events_total.clone());
-        registry.register("scanner_findings_total", "Total prioritized findings", findings_total.clone());
-        registry.register("scanner_dropped_events", "Approximate dropped kernel events", dropped_events.clone());
+        registry.register(
+            "scanner_events_total",
+            "Total runtime events ingested",
+            events_total.clone(),
+        );
+        registry.register(
+            "scanner_findings_total",
+            "Total prioritized findings",
+            findings_total.clone(),
+        );
+        registry.register(
+            "scanner_dropped_events",
+            "Approximate dropped kernel events",
+            dropped_events.clone(),
+        );
         Self {
             registry: Arc::new(Mutex::new(registry)),
             events_total,

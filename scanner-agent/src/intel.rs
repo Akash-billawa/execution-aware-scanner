@@ -132,12 +132,20 @@ impl IntelFeed {
                     .map(|v| v.cve_id.clone())
                     .filter(|cve| !state.kev.contains(cve))
                     .collect();
-                
-                state.kev = kev_data.vulnerabilities.into_iter().map(|v| v.cve_id).collect();
+
+                state.kev = kev_data
+                    .vulnerabilities
+                    .into_iter()
+                    .map(|v| v.cve_id)
+                    .collect();
                 state.last_refresh = Some(Utc::now());
-                
+
                 if !new_kevs.is_empty() {
-                    info!("Updated CISA KEV: {} new CVEs, total {} CVEs", new_kevs.len(), state.kev.len());
+                    info!(
+                        "Updated CISA KEV: {} new CVEs, total {} CVEs",
+                        new_kevs.len(),
+                        state.kev.len()
+                    );
                 } else {
                     debug!("CISA KEV refreshed, no new CVEs");
                 }
@@ -182,14 +190,17 @@ impl IntelFeed {
             .await?;
 
         if !response.status().is_success() {
-            return Err(ScannerError::Http(
-                reqwest::Error::from(response.error_for_status().unwrap_err())
-            ));
+            return Err(ScannerError::Http(reqwest::Error::from(
+                response.error_for_status().unwrap_err(),
+            )));
         }
 
         let catalog = response.json::<KevCatalog>().await?;
-        debug!("CISA KEV: version={}, count={}", catalog.version, catalog.count);
-        
+        debug!(
+            "CISA KEV: version={}, count={}",
+            catalog.version, catalog.count
+        );
+
         Ok(catalog)
     }
 
@@ -206,35 +217,38 @@ impl IntelFeed {
             .await?;
 
         if !response.status().is_success() {
-            return Err(ScannerError::Http(
-                reqwest::Error::from(response.error_for_status().unwrap_err())
-            ));
+            return Err(ScannerError::Http(reqwest::Error::from(
+                response.error_for_status().unwrap_err(),
+            )));
         }
 
         let data = response.json::<EpssResponse>().await?;
         debug!("EPSS: {} CVEs in response", data.data.len());
-        
+
         Ok(data)
     }
 
     /// Fetch EPSS scores for specific CVEs (batch query)
-    pub async fn fetch_epss_for_cves(&self, cves: &[String]) -> Result<BTreeMap<String, f32>, ScannerError> {
+    pub async fn fetch_epss_for_cves(
+        &self,
+        cves: &[String],
+    ) -> Result<BTreeMap<String, f32>, ScannerError> {
         if cves.is_empty() {
             return Ok(BTreeMap::new());
         }
 
         debug!("Fetching EPSS for {} CVEs", cves.len());
 
-    let cve_list = cves.join(",");
-    let response = self
-        .client
-        .get(&self.config.epss_url)
-        .query(&[("cve", cve_list), ("scope", "epss".to_string())])
-        .send()
-        .await?;
+        let cve_list = cves.join(",");
+        let response = self
+            .client
+            .get(&self.config.epss_url)
+            .query(&[("cve", cve_list), ("scope", "epss".to_string())])
+            .send()
+            .await?;
 
         let data = response.json::<EpssResponse>().await?;
-        
+
         let mut scores = BTreeMap::new();
         for entry in data.data {
             if let Ok(score) = entry.epss.parse::<f32>() {
@@ -266,7 +280,7 @@ impl IntelFeed {
     /// Get comprehensive risk assessment for CVE
     pub async fn assess_cve(&self, cve_id: &str) -> CveRiskAssessment {
         let state = self.state.read().await;
-        
+
         CveRiskAssessment {
             cve_id: cve_id.to_string(),
             is_kev: state.kev.contains(cve_id),
@@ -322,10 +336,7 @@ impl serde::Serialize for CveRiskAssessment {
         state.serialize_field("is_kev", &self.is_kev)?;
         state.serialize_field("epss_score", &self.epss_score)?;
         state.serialize_field("epss_percentile", &self.epss_percentile)?;
-        state.serialize_field(
-            "intel_age_hours",
-            &self.intel_age.map(|d| d.num_hours()),
-        )?;
+        state.serialize_field("intel_age_hours", &self.intel_age.map(|d| d.num_hours()))?;
         state.end()
     }
 }
@@ -377,7 +388,7 @@ mod tests {
             epss_url: "https://example.com/epss.json".to_string(),
             refresh_interval_secs: 60,
         });
-        
+
         let state = feed.state();
         let snapshot = state.read().await;
         assert!(snapshot.kev.is_empty());

@@ -39,12 +39,7 @@ pub const SECCTX_FLAG_PRIVILEGED: u32 = 1 << 3;
 
 // Helper to log security events
 #[inline]
-pub unsafe fn log_security_event(
-    hook: SecurityHook,
-    cgroup_id: u64,
-    pid: u32,
-    action: u8,
-) {
+pub unsafe fn log_security_event(hook: SecurityHook, cgroup_id: u64, pid: u32, action: u8) {
     use crate::events::SecurityEvent;
     use crate::maps::SECURITY_EVENTS;
     use aya_bpf::helpers::bpf_ktime_get_ns;

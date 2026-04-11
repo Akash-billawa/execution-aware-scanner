@@ -133,16 +133,37 @@ impl AppConfig {
             )?
             .set_default("remediator.enabled", Self::default().remediator.enabled)?
             .set_default("remediator.address", Self::default().remediator.address)?
-            .set_default("remediator.timeout_secs", Self::default().remediator.timeout_secs)?
-            .set_default("remediator.max_retries", Self::default().remediator.max_retries)?
-            .set_default("remediator.enforce_critical", Self::default().remediator.enforce_critical)?
-            .set_default("remediator.enforce_high", Self::default().remediator.enforce_high)?
-            .set_default("remediator.auto_seccomp", Self::default().remediator.auto_seccomp)?
-            .set_default("remediator.auto_quarantine", Self::default().remediator.auto_quarantine)?
+            .set_default(
+                "remediator.timeout_secs",
+                Self::default().remediator.timeout_secs,
+            )?
+            .set_default(
+                "remediator.max_retries",
+                Self::default().remediator.max_retries,
+            )?
+            .set_default(
+                "remediator.enforce_critical",
+                Self::default().remediator.enforce_critical,
+            )?
+            .set_default(
+                "remediator.enforce_high",
+                Self::default().remediator.enforce_high,
+            )?
+            .set_default(
+                "remediator.auto_seccomp",
+                Self::default().remediator.auto_seccomp,
+            )?
+            .set_default(
+                "remediator.auto_quarantine",
+                Self::default().remediator.auto_quarantine,
+            )?
             .set_default("export.enabled", Self::default().export.enabled)?
             .set_default("export.format", Self::default().export.format)?
             .set_default("export.output_path", Self::default().export.output_path)?
-            .set_default("export.rotate_interval_secs", Self::default().export.rotate_interval_secs)?
+            .set_default(
+                "export.rotate_interval_secs",
+                Self::default().export.rotate_interval_secs,
+            )?
             .set_default("export.compress", Self::default().export.compress)?
             .add_source(config::Environment::with_prefix("SCANNER").separator("__"))
             .build()?

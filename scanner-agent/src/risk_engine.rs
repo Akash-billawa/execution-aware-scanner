@@ -1,7 +1,8 @@
 use crate::config::RiskConfig;
 use crate::error::ScannerError;
 use scanner_common::{
-    CveRecord, Finding, Priority, RiskSignal, RuntimeDisposition, RuntimeIdentity, SeccompProfile, SeccompRule,
+    CveRecord, Finding, Priority, RiskSignal, RuntimeDisposition, RuntimeIdentity, SeccompProfile,
+    SeccompRule,
 };
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::sync::Arc;
@@ -47,7 +48,7 @@ impl ExfRiskEngine {
     }
 
     /// Calculate EXF score using weighted components
-    /// 
+    ///
     /// Formula: EXF = (CVSS × 0.45) + (EPSS × 10 × 0.25) + (KEV_Bonus × 0.15) + (Runtime × 0.15)
     ///
     /// Weights reflect:
@@ -147,14 +148,19 @@ impl ExfRiskEngine {
                 ));
             }
             RuntimeDisposition::Dormant => {
-                parts.push("Vulnerability present but not currently active. Schedule patching.".to_string());
+                parts.push(
+                    "Vulnerability present but not currently active. Schedule patching."
+                        .to_string(),
+                );
             }
             _ => {}
         }
 
         // KEV-specific
         if signal.kev {
-            parts.push("This CVE is in CISA KEV catalog - actively exploited in the wild.".to_string());
+            parts.push(
+                "This CVE is in CISA KEV catalog - actively exploited in the wild.".to_string(),
+            );
         }
 
         // EPSS guidance
@@ -168,7 +174,9 @@ impl ExfRiskEngine {
         // Priority-specific actions
         match priority {
             Priority::Critical => {
-                parts.push("IMMEDIATE ACTION: Consider quarantining workload until patched.".to_string());
+                parts.push(
+                    "IMMEDIATE ACTION: Consider quarantining workload until patched.".to_string(),
+                );
             }
             Priority::High => {
                 parts.push("URGENT: Patch within 24-48 hours.".to_string());
@@ -230,18 +238,18 @@ impl ExfRiskEngine {
     /// Get cached score or calculate new
     pub async fn get_cached_score(&self, cve_id: &str, signal: &RiskSignal) -> f32 {
         let cache = self.cache.read().await;
-        
+
         if let Some(entry) = cache.scores.get(cve_id) {
             if entry.calculated_at + entry.ttl > chrono::Utc::now() {
                 return entry.score;
             }
         }
-        
+
         drop(cache);
-        
+
         let score = self.calculate_exf_score(signal);
         let mut cache = self.cache.write().await;
-        
+
         cache.scores.insert(
             cve_id.to_string(),
             RiskCacheEntry {
@@ -275,21 +283,29 @@ impl ExfRiskEngine {
     pub async fn clear_expired(&self) {
         let mut cache = self.cache.write().await;
         let now = chrono::Utc::now();
-        
-        cache.scores.retain(|_, entry| {
-            entry.calculated_at + entry.ttl > now
-        });
+
+        cache
+            .scores
+            .retain(|_, entry| entry.calculated_at + entry.ttl > now);
     }
 
     /// Export risk summary
     pub async fn export_risk_summary(&self) -> RiskSummary {
         let cache = self.cache.read().await;
-        
+
         RiskSummary {
             total_cves: cache.scores.len(),
             critical_count: cache.scores.values().filter(|e| e.score >= 9.0).count(),
-            high_count: cache.scores.values().filter(|e| e.score >= 7.0 && e.score < 9.0).count(),
-            medium_count: cache.scores.values().filter(|e| e.score >= 4.0 && e.score < 7.0).count(),
+            high_count: cache
+                .scores
+                .values()
+                .filter(|e| e.score >= 7.0 && e.score < 9.0)
+                .count(),
+            medium_count: cache
+                .scores
+                .values()
+                .filter(|e| e.score >= 4.0 && e.score < 7.0)
+                .count(),
             low_count: cache.scores.values().filter(|e| e.score < 4.0).count(),
         }
     }
@@ -308,10 +324,34 @@ pub struct RiskSummary {
 fn categorize_syscall(syscall: &str) -> String {
     let categories: BTreeMap<&str, Vec<&str>> = [
         ("memory", vec!["mmap", "munmap", "mprotect", "brk", "sbrk"]),
-        ("file", vec!["openat", "openat2", "read", "write", "close", "fstat", "lseek"]),
-        ("process", vec!["execve", "execveat", "clone", "fork", "vfork", "exit", "wait4"]),
-        ("network", vec!["socket", "connect", "bind", "listen", "accept", "sendto", "recvfrom"]),
-        ("signal", vec!["rt_sigaction", "rt_sigprocmask", "rt_sigreturn", "kill", "tkill"]),
+        (
+            "file",
+            vec![
+                "openat", "openat2", "read", "write", "close", "fstat", "lseek",
+            ],
+        ),
+        (
+            "process",
+            vec![
+                "execve", "execveat", "clone", "fork", "vfork", "exit", "wait4",
+            ],
+        ),
+        (
+            "network",
+            vec![
+                "socket", "connect", "bind", "listen", "accept", "sendto", "recvfrom",
+            ],
+        ),
+        (
+            "signal",
+            vec![
+                "rt_sigaction",
+                "rt_sigprocmask",
+                "rt_sigreturn",
+                "kill",
+                "tkill",
+            ],
+        ),
         ("time", vec!["clock_gettime", "gettimeofday", "nanosleep"]),
     ]
     .iter()
@@ -355,7 +395,11 @@ mod tests {
         };
 
         let score = engine.calculate_exf_score(&signal);
-        assert!(score >= 9.0, "Expected critical score >= 9.0, got {}", score);
+        assert!(
+            score >= 9.0,
+            "Expected critical score >= 9.0, got {}",
+            score
+        );
 
         // High: CVSS 8.0, EPSS 0.5, Not KEV, Reachable
         let signal2 = RiskSignal {
@@ -369,7 +413,11 @@ mod tests {
         };
 
         let score2 = engine.calculate_exf_score(&signal2);
-        assert!(score2 >= 7.0 && score2 < 9.0, "Expected high score, got {}", score2);
+        assert!(
+            score2 >= 7.0 && score2 < 9.0,
+            "Expected high score, got {}",
+            score2
+        );
     }
 
     #[test]
