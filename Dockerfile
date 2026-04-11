@@ -1,5 +1,5 @@
 # Multi-stage build for execution-aware-scanner
-FROM rust:1.86-bookworm AS builder
+FROM rust:1.90-bookworm AS builder
 
 WORKDIR /src
 COPY . .
