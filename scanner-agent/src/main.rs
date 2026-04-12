@@ -11,6 +11,7 @@ mod metrics;
 mod remediator;
 mod risk_engine;
 mod runtime_attack_graph;
+mod runtime_attack_graph_v2;
 mod runtime_mapper;
 mod safe_enforcement;
 mod sbom;
@@ -476,61 +477,88 @@ async fn run_analysis_pipeline(
             }
 
             // 🆕 BUILD ATTACK PATHS FROM RUNTIME SIGNALS
-            // Initialize attack graph for this workload
-            let mut attack_graph = runtime_attack_graph::RuntimeAttackGraph::new(300);
+            // Initialize attack graph v2 with enhanced config
+            let mut attack_graph = runtime_attack_graph_v2::RuntimeAttackGraph::with_defaults();
+            
+            // Configure for production
+            let mut config = runtime_attack_graph_v2::AttackGraphConfig::default();
+            config.top_k = 3; // Only report top 3 paths
+            config.min_enforcement_confidence = 0.8;
+            config.min_enforcement_depth = 3;
 
             // Process library loads
             for lib in &workload.loaded_libraries {
-              attack_graph.process_library_load(
-                0, // Use actual PID from signals
-                &identity.workload,
-                *cgroup_id,
-                lib,
-                0,
-              );
+                attack_graph.process_library_load(
+                    0, // Use actual PID from signals
+                    &identity.workload,
+                    *cgroup_id,
+                    lib,
+                    0,
+                );
 
-              // Associate CVEs with loaded libraries
-              for vuln in &vulns_for_attack_graph {
-                if lib.contains(&vuln.package) || vuln.package.contains(lib.split('/').last().unwrap_or("")) {
-                  attack_graph.associate_cve_with_library(
-                    &vuln.cve,
-                    &vuln.package,
-                    vuln.cvss_score,
-                    *intel_state.epss.get(&vuln.cve).unwrap_or(&0.0),
-                    intel_state.kev.contains(&vuln.cve),
-                  );
+                // Associate CVEs with loaded libraries
+                for vuln in &vulns_for_attack_graph {
+                    if lib.contains(&vuln.package) || vuln.package.contains(lib.split('/').last().unwrap_or("")) {
+                        attack_graph.associate_cve_with_library(
+                            &vuln.cve,
+                            &vuln.package,
+                            vuln.cvss_score,
+                            *intel_state.epss.get(&vuln.cve).unwrap_or(&0.0),
+                            intel_state.kev.contains(&vuln.cve),
+                        );
+                    }
                 }
-              }
             }
 
             // Process network events from runtime signals
             for signal in &workload.signals {
-              // Extract network info from signal details
-              if signal.details.contains("transfer") {
-                // Parse network info from details
-                let net_event = scanner_common::NetEvent {
-                  timestamp_ns: signal.timestamp_ns,
-                  pid: 0,
-                  tgid: 0,
-                  cgroup_id: *cgroup_id,
-                  saddr: 0,
-                  daddr: 0, // Parse from details
-                  sport: 0,
-                  dport: 443,
-                  family: 2,
-                  protocol: 6,
-                  kind: scanner_common::EventKind::TcpSend,
-                  data_size: 1024, // Parse from details
-                };
+                // Extract network info from signal details
+                if signal.details.contains("transfer") {
+                    // Parse network info from details
+                    let net_event = scanner_common::NetEvent {
+                        timestamp_ns: signal.timestamp_ns,
+                        pid: 0,
+                        tgid: 0,
+                        cgroup_id: *cgroup_id,
+                        saddr: 0,
+                        daddr: 0, // Parse from details
+                        sport: 0,
+                        dport: 443,
+                        family: 2,
+                        protocol: 6,
+                        kind: scanner_common::EventKind::TcpSend,
+                        data_size: 1024, // Parse from details
+                    };
 
-                attack_graph.process_network_event(
-                  0,
-                  &identity.workload,
-                  *cgroup_id,
-                  &net_event,
-                );
-              }
+                    attack_graph.process_network_event(
+                        0,
+                        &identity.workload,
+                        *cgroup_id,
+                        &net_event,
+                    );
+                }
             }
+
+            // Get top-K paths and streaming updates
+            let path_summaries = attack_graph.get_top_k_paths(&findings);
+            let updates = attack_graph.drain_updates();
+            
+            // Log attack paths
+            if !path_summaries.is_empty() {
+                info!("Detected {} attack paths", path_summaries.len());
+                for path in &path_summaries {
+                    info!(
+                        "Attack Path #{}: {} nodes, confidence: {:.2}, risk: {:.2}",
+                        path.rank.unwrap_or(0),
+                        path.node_count,
+                        path.confidence,
+                        path.risk_score
+                    );
+                }
+            }
+
+            // Attach attack paths to findings
+            runtime_attack_graph_v2::attach_attack_paths_to_findings(&mut findings, &mut attack_graph);
           }
           }
         Err(e) => {
