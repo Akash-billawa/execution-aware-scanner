@@ -83,6 +83,7 @@ pub struct CveRecord {
     pub cvss: f32,
     pub severity: Severity,
     pub description: Option<String>,
+    pub cwe: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]

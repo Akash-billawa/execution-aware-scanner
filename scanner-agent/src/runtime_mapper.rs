@@ -78,38 +78,46 @@ impl RuntimeMapper {
             return Ok(());
         }
         
-        // Update process state
-        if let Some(process) = self.processes.get_mut(&event.pid) {
-            process.loaded_libs.insert(path.clone());
-            
-            // Check if library has known vulnerabilities
-            if !self.lib_vulns.contains_key(&path) {
-                // Scan this specific library for CVEs
-                match self.scan_library(&path).await {
-                    Ok(vulns) => {
-                        if !vulns.is_empty() {
-                            tracing::info!(
-                                "Library {} loaded by {} has {} vulnerabilities",
-                                path,
-                                process.command,
-                                vulns.len()
-                            );
-                        }
-                        self.lib_vulns.insert(path.clone(), vulns.clone());
-                        process.vulnerabilities.extend(vulns);
-                    }
-                    Err(e) => {
-                        tracing::warn!("Failed to scan library {}: {}", path, e);
-                    }
-                }
-            } else {
-                // Use cached vulnerabilities
-                let cached = self.lib_vulns.get(&path).unwrap().clone();
-                process.vulnerabilities.extend(cached);
-            }
-        }
+    // Update process state
+    if let Some(process) = self.processes.get_mut(&event.pid) {
+        process.loaded_libs.insert(path.clone());
         
-        Ok(())
+        // Drop the mutable borrow before calling scan_library
+        drop(process);
+        
+        // Check if library has known vulnerabilities
+        let vulns = if !self.lib_vulns.contains_key(&path) {
+            // Scan this specific library for CVEs
+            match self.scan_library(&path).await {
+                Ok(vulns) => {
+                    if !vulns.is_empty() {
+                        tracing::info!(
+                            "Library {} loaded by process {} has {} vulnerabilities",
+                            path,
+                            event.pid,
+                            vulns.len()
+                        );
+                    }
+                    self.lib_vulns.insert(path.clone(), vulns.clone());
+                    vulns
+                }
+                Err(e) => {
+                    tracing::warn!("Failed to scan library {}: {}", path, e);
+                    Vec::new()
+                }
+            }
+        } else {
+            // Use cached vulnerabilities
+            self.lib_vulns.get(&path).unwrap().clone()
+        };
+        
+        // Re-borrow mutably to update vulnerabilities
+        if let Some(process) = self.processes.get_mut(&event.pid) {
+            process.vulnerabilities.extend(vulns);
+        }
+    }
+    
+    Ok(())
     }
 
     /// Process network event - connection made

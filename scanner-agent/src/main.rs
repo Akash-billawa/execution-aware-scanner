@@ -1,15 +1,19 @@
+mod attack_graph;
 mod cgroup;
 mod config;
 mod enforcement;
 mod error;
+mod execution_proof;
 mod intel;
 mod k8s;
 mod metrics;
 mod remediator;
 mod risk_engine;
 mod runtime_mapper;
+mod safe_enforcement;
 mod sbom;
 mod state;
+mod validation;
 mod vuln_detector;
 mod webhook;
 
@@ -65,6 +69,8 @@ use kube::Client;
 use metrics::Metrics;
 use remediator::RemediatorService;
 use risk_engine::RiskEngine;
+use runtime_mapper::RuntimeMapper;
+use safe_enforcement::{EnforcementMode, SafeEnforcer};
 use sbom::SbomStore;
 use scanner_common::Finding;
 use state::StateStore;
@@ -369,6 +375,7 @@ async fn run_analysis_pipeline(
     cgroup_resolver: Arc<Mutex<cgroup::CgroupResolver>>,
     remediator: RemediatorService,
     vuln_detector: VulnDetector,
+    mut safe_enforcer: safe_enforcement::SafeEnforcer,
 ) -> Result<Vec<Finding>, ScannerError> {
     let mut findings = Vec::new();
     let mut ticker = interval(Duration::from_secs(30));

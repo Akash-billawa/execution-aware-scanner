@@ -114,11 +114,11 @@ impl VulnDetector {
     /// Parse Trivy JSON output
     fn parse_trivy_output(&self, json_output: &str) -> Result<Vec<Vulnerability>, ScannerError> {
         let report: TrivyReport = serde_json::from_str(json_output)
-            .map_err(|e| ScannerError::Json(serde_json::Error::custom(format!(
+            .map_err(|e| ScannerError::Bpf(format!(
                 "Failed to parse trivy output: {} - raw: {}",
                 e,
                 json_output.chars().take(200).collect::<String>()
-            ))))?;
+            )))?;
 
         let mut vulns = Vec::new();
 
@@ -177,7 +177,7 @@ impl From<Vulnerability> for CveRecord {
         CveRecord {
             id: v.cve,
             cvss: v.cvss_score,
-            description: v.description,
+            description: Some(v.description),
             cwe: None,
         }
     }
