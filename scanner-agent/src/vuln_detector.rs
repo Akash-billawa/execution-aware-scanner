@@ -113,12 +113,13 @@ impl VulnDetector {
 
     /// Parse Trivy JSON output
     fn parse_trivy_output(&self, json_output: &str) -> Result<Vec<Vulnerability>, ScannerError> {
-        let report: TrivyReport = serde_json::from_str(json_output)
-            .map_err(|e| ScannerError::Bpf(format!(
+        let report: TrivyReport = serde_json::from_str(json_output).map_err(|e| {
+            ScannerError::Bpf(format!(
                 "Failed to parse trivy output: {} - raw: {}",
                 e,
                 json_output.chars().take(200).collect::<String>()
-            )))?;
+            ))
+        })?;
 
         let mut vulns = Vec::new();
 
@@ -144,7 +145,9 @@ impl VulnDetector {
                     cve: vuln.vulnerability_id,
                     severity,
                     cvss_score: cvss_score as f32,
-                    description: vuln.title.unwrap_or_else(|| vuln.description.unwrap_or_default()),
+                    description: vuln
+                        .title
+                        .unwrap_or_else(|| vuln.description.unwrap_or_default()),
                     fixed_version: vuln.fixed_version,
                 });
             }
@@ -264,7 +267,7 @@ mod tests {
 
         let detector = VulnDetector::new();
         let vulns = detector.parse_trivy_output(json).unwrap();
-        
+
         assert_eq!(vulns.len(), 1);
         assert_eq!(vulns[0].cve, "CVE-2021-44228");
         assert_eq!(vulns[0].package, "log4j-core");

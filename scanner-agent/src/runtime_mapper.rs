@@ -48,7 +48,7 @@ impl RuntimeMapper {
         let command = String::from_utf8_lossy(&event.command)
             .trim_end_matches('\0')
             .to_string();
-        
+
         let process = ProcessState {
             pid: event.pid,
             command: command.clone(),
@@ -57,7 +57,7 @@ impl RuntimeMapper {
             network_connections: Vec::new(),
             vulnerabilities: Vec::new(),
         };
-        
+
         self.processes.insert(event.pid, process);
         tracing::info!("Process started: {} (pid={})", command, event.pid);
     }
@@ -67,57 +67,57 @@ impl RuntimeMapper {
         let path = String::from_utf8_lossy(&event.path)
             .trim_end_matches('\0')
             .to_string();
-        
+
         // Only process mmap events (shared libraries loaded)
         if event.kind != EventKind::Mmap {
             return Ok(());
         }
-        
+
         // Check if this is a shared library
         if !self.is_shared_library(&path) {
             return Ok(());
         }
-        
-    // Update process state
-    if let Some(process) = self.processes.get_mut(&event.pid) {
-        process.loaded_libs.insert(path.clone());
-        
-        // Drop the mutable borrow before calling scan_library
-        drop(process);
-        
-        // Check if library has known vulnerabilities
-        let vulns = if !self.lib_vulns.contains_key(&path) {
-            // Scan this specific library for CVEs
-            match self.scan_library(&path).await {
-                Ok(vulns) => {
-                    if !vulns.is_empty() {
-                        tracing::info!(
-                            "Library {} loaded by process {} has {} vulnerabilities",
-                            path,
-                            event.pid,
-                            vulns.len()
-                        );
-                    }
-                    self.lib_vulns.insert(path.clone(), vulns.clone());
-                    vulns
-                }
-                Err(e) => {
-                    tracing::warn!("Failed to scan library {}: {}", path, e);
-                    Vec::new()
-                }
-            }
-        } else {
-            // Use cached vulnerabilities
-            self.lib_vulns.get(&path).unwrap().clone()
-        };
-        
-        // Re-borrow mutably to update vulnerabilities
+
+        // Update process state
         if let Some(process) = self.processes.get_mut(&event.pid) {
-            process.vulnerabilities.extend(vulns);
+            process.loaded_libs.insert(path.clone());
+
+            // Drop the mutable borrow before calling scan_library
+            drop(process);
+
+            // Check if library has known vulnerabilities
+            let vulns = if !self.lib_vulns.contains_key(&path) {
+                // Scan this specific library for CVEs
+                match self.scan_library(&path).await {
+                    Ok(vulns) => {
+                        if !vulns.is_empty() {
+                            tracing::info!(
+                                "Library {} loaded by process {} has {} vulnerabilities",
+                                path,
+                                event.pid,
+                                vulns.len()
+                            );
+                        }
+                        self.lib_vulns.insert(path.clone(), vulns.clone());
+                        vulns
+                    }
+                    Err(e) => {
+                        tracing::warn!("Failed to scan library {}: {}", path, e);
+                        Vec::new()
+                    }
+                }
+            } else {
+                // Use cached vulnerabilities
+                self.lib_vulns.get(&path).unwrap().clone()
+            };
+
+            // Re-borrow mutably to update vulnerabilities
+            if let Some(process) = self.processes.get_mut(&event.pid) {
+                process.vulnerabilities.extend(vulns);
+            }
         }
-    }
-    
-    Ok(())
+
+        Ok(())
     }
 
     /// Process network event - connection made
@@ -125,15 +125,29 @@ impl RuntimeMapper {
         // Only track external connections
         if event.dport == 443 || event.dport == 80 {
             let conn = NetworkConn {
-                dest_ip: format!("{}.{}.{}.{}" , (event.daddr >> 24) & 0xFF, (event.daddr >> 16) & 0xFF, (event.daddr >> 8) & 0xFF, event.daddr & 0xFF),
+                dest_ip: format!(
+                    "{}.{}.{}.{}",
+                    (event.daddr >> 24) & 0xFF,
+                    (event.daddr >> 16) & 0xFF,
+                    (event.daddr >> 8) & 0xFF,
+                    event.daddr & 0xFF
+                ),
                 dest_port: event.dport,
-                protocol: if event.protocol == 6 { "TCP".to_string() } else { "UDP".to_string() },
+                protocol: if event.protocol == 6 {
+                    "TCP".to_string()
+                } else {
+                    "UDP".to_string()
+                },
             };
-            
+
             if let Some(process) = self.processes.get_mut(&event.pid) {
                 process.network_connections.push(conn);
-                tracing::debug!("Process {} made network connection to {}:{}", 
-                    process.command, event.daddr, event.dport);
+                tracing::debug!(
+                    "Process {} made network connection to {}:{}",
+                    process.command,
+                    event.daddr,
+                    event.dport
+                );
             }
         }
     }
@@ -165,10 +179,10 @@ impl RuntimeMapper {
 
     /// Check if path is a shared library
     fn is_shared_library(&self, path: &str) -> bool {
-        path.ends_with(".so") || 
-        path.contains(".so.") ||
-        path.starts_with("/usr/lib") ||
-        path.starts_with("/lib")
+        path.ends_with(".so")
+            || path.contains(".so.")
+            || path.starts_with("/usr/lib")
+            || path.starts_with("/lib")
     }
 
     /// Scan a library file for vulnerabilities
@@ -176,7 +190,7 @@ impl RuntimeMapper {
         // For real implementation, you'd extract the library name and version
         // Then query vulnerability database
         // For now, use the vuln_detector to scan
-        
+
         // Parse library name from path
         // Example: /usr/lib/x86_64-linux-gnu/libssl.so.1.1 -> libssl 1.1
         let lib_name = Path::new(path)
@@ -187,7 +201,7 @@ impl RuntimeMapper {
             .next()
             .unwrap_or("unknown")
             .to_string();
-        
+
         // In production, you'd query a local CVE database by library name
         // For now, return empty - real scanning would be done at image level
         tracing::debug!("Library {} loaded (path: {})", lib_name, path);
@@ -271,7 +285,7 @@ mod tests {
     #[tokio::test]
     async fn test_process_tracking() {
         let mut mapper = RuntimeMapper::new();
-        
+
         // Simulate nginx starting
         let exec = ExecEvent {
             timestamp_ns: 0,
@@ -284,11 +298,11 @@ mod tests {
             command: [110, 103, 105, 110, 120, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0], // "nginx"
             argv: [0u8; 256],
         };
-        
+
         mapper.handle_exec(&exec);
         assert!(mapper.get_process(1234).is_some());
         assert_eq!(mapper.get_process(1234).unwrap().command, "nginx");
-        
+
         // Simulate loading libssl
         let file = FileEvent {
             timestamp_ns: 0,
@@ -299,12 +313,12 @@ mod tests {
             path: path_to_bytes("/usr/lib/libssl.so.1.1"),
             kind: EventKind::Mmap,
         };
-        
+
         mapper.handle_file(&file).await.unwrap();
         let proc = mapper.get_process(1234).unwrap();
         assert!(proc.loaded_libs.contains("/usr/lib/libssl.so.1.1"));
     }
-    
+
     fn path_to_bytes(s: &str) -> [u8; 256] {
         let mut buf = [0u8; 256];
         let bytes = s.as_bytes();

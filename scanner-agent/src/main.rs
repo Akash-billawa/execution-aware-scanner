@@ -216,7 +216,10 @@ async fn main() -> Result<(), ScannerError> {
     // Initialize vulnerability detector
     let vuln_detector = VulnDetector::new();
     if let Err(e) = VulnDetector::check_trivy() {
-        warn!("Trivy not installed: {}. Vulnerability scanning disabled.", e);
+        warn!(
+            "Trivy not installed: {}. Vulnerability scanning disabled.",
+            e
+        );
     }
 
     // Load eBPF and start event consumption
@@ -251,24 +254,24 @@ async fn main() -> Result<(), ScannerError> {
     };
 
     // Run analysis pipeline
-let analysis_config = config.clone();
-let safe_enforcer_for_pipeline = SafeEnforcer::new(EnforcementMode::Audit, config.risk.clone());
-let analysis_handle = tokio::spawn(async move {
-    run_analysis_pipeline(
-        &analysis_config,
-        sbom_store,
-        intel,
-        pod_cache,
-        risk_engine,
-        metrics,
-        state_store,
-        cgroup_resolver,
-        remediator,
-        vuln_detector,
-        safe_enforcer_for_pipeline,
-    )
-    .await
-});
+    let analysis_config = config.clone();
+    let safe_enforcer_for_pipeline = SafeEnforcer::new(EnforcementMode::Audit, config.risk.clone());
+    let analysis_handle = tokio::spawn(async move {
+        run_analysis_pipeline(
+            &analysis_config,
+            sbom_store,
+            intel,
+            pod_cache,
+            risk_engine,
+            metrics,
+            state_store,
+            cgroup_resolver,
+            remediator,
+            vuln_detector,
+            safe_enforcer_for_pipeline,
+        )
+        .await
+    });
 
     // Wait for completion or signal
     tokio::signal::ctrl_c().await.ok();
@@ -395,11 +398,15 @@ async fn run_analysis_pipeline(
                 if let Some(identity) = pod_cache.lookup(&container_id).await {
                     let intel_state = intel.state();
                     let intel_state = intel_state.read().await;
-                    
+
                     // 🆕 SCAN IMAGE FOR REAL VULNERABILITIES
                     match vuln_detector.scan_image(&identity.image).await {
                         Ok(vulns) => {
-                            info!("Found {} vulnerabilities in {}", vulns.len(), identity.image);
+                            info!(
+                                "Found {} vulnerabilities in {}",
+                                vulns.len(),
+                                identity.image
+                            );
                             for vuln in vulns {
                                 // Convert to risk signal
                                 let signal = scanner_common::RiskSignal {
@@ -411,15 +418,21 @@ async fn run_analysis_pipeline(
                                     package: vuln.package.clone(),
                                     observed_paths: workload.observed_paths.clone(),
                                 };
-                                
-                                if let Some(finding) = risk_engine.evaluate(identity.clone(), signal) {
+
+                                if let Some(finding) =
+                                    risk_engine.evaluate(identity.clone(), signal)
+                                {
                                     let priority = format!("{:?}", finding.priority);
                                     metrics.inc_findings(&priority);
                                     findings.push(finding.clone());
-                                    
+
                                     // Trigger remediation for critical
-                                    if matches!(finding.priority, scanner_common::Priority::Critical) {
-                                        if let Err(e) = remediator.remediate_finding(&finding).await {
+                                    if matches!(
+                                        finding.priority,
+                                        scanner_common::Priority::Critical
+                                    ) {
+                                        if let Err(e) = remediator.remediate_finding(&finding).await
+                                        {
                                             warn!("Remediation failed: {}", e);
                                         }
                                     }
@@ -431,7 +444,7 @@ async fn run_analysis_pipeline(
                             // Fall back to SBOM-based detection
                         }
                     }
-                    
+
                     // Original SBOM-based detection (fallback)
                     let components = sbom_store
                         .classify_runtime_paths(&identity.image, &workload.observed_paths);
