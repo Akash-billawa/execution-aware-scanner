@@ -10,14 +10,21 @@ pub const PATH_LEN: usize = 256;
 pub enum EventKind {
     Exec = 1,
     Mmap = 2,
-    Open = 3,
-    Connect = 4,
-    Bind = 5,
-    Close = 6,
-    Read = 7,
-    Write = 8,
-    Mprotect = 9,
-    SecurityDeny = 10,
+    MmapAnon = 3, // Anonymous memory mapping (code injection detection)
+    Open = 4,
+    Connect = 5,
+    Bind = 6,
+    Close = 7,
+    TcpSend = 8, // TCP send data (C2 detection)
+    TcpRecv = 9, // TCP receive data
+    UdpSend = 10,
+    UdpRecv = 11,
+    Mprotect = 12, // Memory protection changes
+    SecurityDeny = 13,
+    SecurityAllow = 14,
+    DnsQuery = 15, // DNS lookups
+    SslWrite = 16, // TLS/SSL write operations
+    SslRead = 17,  // TLS/SSL read operations
 }
 
 #[repr(C)]
@@ -60,6 +67,7 @@ pub struct NetEvent {
     pub family: u16,
     pub protocol: u8,
     pub kind: EventKind,
+    pub data_size: u32, // NEW: Size of data transferred
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -267,7 +275,7 @@ impl serde::Serialize for NetEvent {
         S: serde::Serializer,
     {
         use serde::ser::SerializeStruct;
-        let mut state = serializer.serialize_struct("NetEvent", 11)?;
+        let mut state = serializer.serialize_struct("NetEvent", 12)?;
         state.serialize_field("timestamp_ns", &self.timestamp_ns)?;
         state.serialize_field("pid", &self.pid)?;
         state.serialize_field("tgid", &self.tgid)?;
@@ -279,6 +287,7 @@ impl serde::Serialize for NetEvent {
         state.serialize_field("family", &self.family)?;
         state.serialize_field("protocol", &self.protocol)?;
         state.serialize_field("kind", &self.kind)?;
+        state.serialize_field("data_size", &self.data_size)?;
         state.end()
     }
 }
@@ -301,6 +310,7 @@ impl<'de> serde::Deserialize<'de> for NetEvent {
             family: u16,
             protocol: u8,
             kind: EventKind,
+            data_size: u32,
         }
 
         let helper = NetEventHelper::deserialize(deserializer)?;
@@ -316,6 +326,7 @@ impl<'de> serde::Deserialize<'de> for NetEvent {
             family: helper.family,
             protocol: helper.protocol,
             kind: helper.kind,
+            data_size: helper.data_size,
         })
     }
 }

@@ -121,15 +121,22 @@ impl ExecutionProofCollector {
             for cve_id in cves {
                 let operation = match event.kind {
                     EventKind::Open => "open",
-                    EventKind::Read => "read",
-                    EventKind::Write => "write",
                     EventKind::Mmap => "mmap",
+                    EventKind::MmapAnon => "mmap_anon",
                     EventKind::Exec => "exec",
                     EventKind::Connect => "connect",
                     EventKind::Bind => "bind",
                     EventKind::Close => "close",
                     EventKind::Mprotect => "mprotect",
                     EventKind::SecurityDeny => "security_deny",
+                    EventKind::TcpSend => "tcp_send",
+                    EventKind::TcpRecv => "tcp_recv",
+                    EventKind::UdpSend => "udp_send",
+                    EventKind::UdpRecv => "udp_recv",
+                    EventKind::DnsQuery => "dns_query",
+                    EventKind::SslWrite => "ssl_write",
+                    EventKind::SslRead => "ssl_read",
+                    EventKind::SecurityAllow => "security_allow",
                 };
 
                 let confidence = if event.kind == EventKind::Mmap || event.kind == EventKind::Exec {
@@ -396,6 +403,7 @@ mod tests {
             family: 2,
             protocol: 6,
             kind: EventKind::Connect,
+            data_size: 0,
         };
 
         collector.process_network_event(&net_event, "java");

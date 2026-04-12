@@ -621,19 +621,20 @@ async fn run_degraded_pipeline(
     };
     state_store.apply_file(&file);
 
-    let net = scanner_common::NetEvent {
-        timestamp_ns: 0,
-        pid: 42,
-        tgid: 42,
-        cgroup_id: 9001,
-        saddr: 10,
-        daddr: 20,
-        sport: 443,
-        dport: 443,
-        family: 2,
-        protocol: 6,
-        kind: scanner_common::EventKind::Connect,
-    };
+  let net = scanner_common::NetEvent {
+    timestamp_ns: 0,
+    pid: 42,
+    tgid: 42,
+    cgroup_id: 9001,
+    saddr: 10,
+    daddr: 20,
+    sport: 443,
+    dport: 443,
+    family: 2,
+    protocol: 6,
+    kind: scanner_common::EventKind::Connect,
+    data_size: 0,
+  };
     state_store.apply_net(&net);
 
     let identity =
