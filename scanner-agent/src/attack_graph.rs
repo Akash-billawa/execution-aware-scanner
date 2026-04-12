@@ -11,7 +11,7 @@ use std::collections::{BTreeMap, HashMap};
 use std::fmt;
 
 /// Node in attack graph
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub enum AttackNode {
     /// External entry point
     External { ip: String, port: u16 },
@@ -25,7 +25,7 @@ pub enum AttackNode {
     Vulnerability {
         cve_id: String,
         severity: String,
-        cvss: f32,
+        cvss: f64, // Changed from f32
         package: String,
     },
     /// Internal asset

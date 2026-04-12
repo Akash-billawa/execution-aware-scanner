@@ -125,6 +125,11 @@ impl ExecutionProofCollector {
                     EventKind::Write => "write",
                     EventKind::Mmap => "mmap",
                     EventKind::Exec => "exec",
+                    EventKind::Connect => "connect",
+                    EventKind::Bind => "bind",
+                    EventKind::Close => "close",
+                    EventKind::Mprotect => "mprotect",
+                    EventKind::SecurityDeny => "security_deny",
                 };
 
                 let confidence = if event.kind == EventKind::Mmap || event.kind == EventKind::Exec {
@@ -231,6 +236,9 @@ impl ExecutionProofCollector {
         details: String,
         confidence: ConfidenceLevel,
     ) {
+        // Convert confidence to string before moving
+        let confidence_str = format!("{:?}", confidence);
+
         let evidence = ExecutionEvidence {
             cve_id: cve_id.to_string(),
             package: package.to_string(),
@@ -247,7 +255,6 @@ impl ExecutionProofCollector {
             .or_default()
             .push(evidence);
 
-        let confidence_str = format!("{:?}", confidence);
         tracing::info!(
             "Execution evidence for {}: {} ({} confidence)",
             cve_id,
