@@ -251,22 +251,24 @@ async fn main() -> Result<(), ScannerError> {
     };
 
     // Run analysis pipeline
-    let analysis_config = config.clone();
-    let analysis_handle = tokio::spawn(async move {
-        run_analysis_pipeline(
-            &analysis_config,
-            sbom_store,
-            intel,
-            pod_cache,
-            risk_engine,
-            metrics,
-            state_store,
-            cgroup_resolver,
-            remediator,
-            vuln_detector,
-        )
-        .await
-    });
+let analysis_config = config.clone();
+let safe_enforcer_for_pipeline = SafeEnforcer::new(EnforcementMode::Audit, config.risk.clone());
+let analysis_handle = tokio::spawn(async move {
+    run_analysis_pipeline(
+        &analysis_config,
+        sbom_store,
+        intel,
+        pod_cache,
+        risk_engine,
+        metrics,
+        state_store,
+        cgroup_resolver,
+        remediator,
+        vuln_detector,
+        safe_enforcer_for_pipeline,
+    )
+    .await
+});
 
     // Wait for completion or signal
     tokio::signal::ctrl_c().await.ok();

@@ -63,7 +63,7 @@ pub enum AttackEdge {
 /// Attack path graph
 pub struct AttackGraph {
     graph: DiGraph<AttackNode, AttackEdge>,
-    node_indices: HashMap<AttackNode, NodeIndex>,
+    node_indices: HashMap<String, NodeIndex>, // Use String ID instead of AttackNode
 }
 
 /// Detected attack chain
@@ -108,13 +108,26 @@ impl AttackGraph {
         }
     }
 
+    /// Generate unique ID for node
+    fn node_id(node: &AttackNode) -> String {
+        match node {
+            AttackNode::External { ip, port } => format!("ext:{}:{}", ip, port),
+            AttackNode::Service {
+                name, namespace, ..
+            } => format!("svc:{}/{}", namespace, name),
+            AttackNode::Vulnerability { cve_id, .. } => format!("vuln:{}", cve_id),
+            AttackNode::Asset { name, asset_type } => format!("asset:{:?}:{}", asset_type, name),
+        }
+    }
+
     /// Add node to graph
     pub fn add_node(&mut self, node: AttackNode) -> NodeIndex {
-        if let Some(&idx) = self.node_indices.get(&node) {
+        let id = Self::node_id(&node);
+        if let Some(&idx) = self.node_indices.get(&id) {
             idx
         } else {
-            let idx = self.graph.add_node(node.clone());
-            self.node_indices.insert(node, idx);
+            let idx = self.graph.add_node(node);
+            self.node_indices.insert(id, idx);
             idx
         }
     }
@@ -173,7 +186,7 @@ impl AttackGraph {
                 image: finding.identity.image.clone(),
             };
 
-            if let Some(&svc_idx) = self.node_indices.get(&service_node) {
+            if let Some(&svc_idx) = self.node_indices.get(&Self::node_id(&service_node)) {
                 self.add_edge(vuln_idx, svc_idx, AttackEdge::Exploits);
             }
         }
