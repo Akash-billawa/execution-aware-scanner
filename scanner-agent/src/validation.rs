@@ -1,7 +1,7 @@
 //! Validation and metrics for false positive reduction
 //! Compares traditional scanning vs execution-aware scanning
 
-use crate::vuln_detector::Vulnerability;
+use crate::vuln_detector::{Severity, Vulnerability};
 use scanner_common::{Finding, Priority};
 use std::collections::HashMap;
 
@@ -253,20 +253,20 @@ impl FalsePositiveValidator {
     }
 
     // Helper functions
-    fn is_critical(severity: &str) -> bool {
-        severity == "CRITICAL" || severity == "Critical"
+    fn is_critical(severity: &Severity) -> bool {
+        matches!(severity, Severity::Critical)
     }
 
-    fn is_high(severity: &str) -> bool {
-        severity == "HIGH" || severity == "High"
+    fn is_high(severity: &Severity) -> bool {
+        matches!(severity, Severity::High)
     }
 
-    fn is_medium(severity: &str) -> bool {
-        severity == "MEDIUM" || severity == "Medium"
+    fn is_medium(severity: &Severity) -> bool {
+        matches!(severity, Severity::Medium)
     }
 
-    fn is_low(severity: &str) -> bool {
-        severity == "LOW" || severity == "Low"
+    fn is_low(severity: &Severity) -> bool {
+        matches!(severity, Severity::Low)
     }
 }
 

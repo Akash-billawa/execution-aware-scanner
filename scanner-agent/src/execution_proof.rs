@@ -326,12 +326,20 @@ impl SyscallPatternMatcher {
         let signatures = vec![
             SyscallSignature {
                 cve_id: "CVE-2021-44228".to_string(),
-                pattern: vec!["socket", "connect", "sendto"], // JNDI LDAP
+                pattern: vec![
+                    "socket".to_string(),
+                    "connect".to_string(),
+                    "sendto".to_string(),
+                ], // JNDI LDAP
                 description: "Log4Shell JNDI exploit pattern".to_string(),
             },
             SyscallSignature {
                 cve_id: "CVE-2023-38408".to_string(),
-                pattern: vec!["openat", "read", "write"], // OpenSSH
+                pattern: vec![
+                    "openat".to_string(),
+                    "read".to_string(),
+                    "write".to_string(),
+                ], // OpenSSH
                 description: "OpenSSH PKCS11 exploit".to_string(),
             },
         ];

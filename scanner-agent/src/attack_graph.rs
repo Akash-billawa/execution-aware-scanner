@@ -174,7 +174,7 @@ impl AttackGraph {
             let vuln_node = AttackNode::Vulnerability {
                 cve_id: finding.signal.cve.clone(),
                 severity: format!("{:?}", finding.priority),
-                cvss: finding.signal.cvss,
+                cvss: finding.signal.cvss as f64,
                 package: finding.signal.package.clone(),
             };
             let vuln_idx = self.add_node(vuln_node);
@@ -354,7 +354,7 @@ impl AttackPathAnalyzer {
             id: format!("chain-{}", uuid::Uuid::new_v4()),
             nodes,
             edges,
-            total_cvss,
+            total_cvss: total_cvss as f32,
             exploitation_complexity: complexity,
             impact,
             attack_path,
