@@ -1,6 +1,11 @@
 # Execution-Aware eBPF Scanner
 
-**Runtime-aware vulnerability scanner using eBPF + threat intelligence (EXF scoring)**
+**From 10,000 CVEs to 10 critical findings — see what's actually exploitable in your containers**
+
+This scanner uses eBPF to trace runtime execution, correlates with vulnerability data (EPSS, KEV), and prioritizes only vulnerabilities that are:
+- ✅ **Reachable** — code is actually loaded and running
+- ✅ **Exploitable** — high EPSS score (probability of exploitation)
+- ✅ **Known** — in CISA KEV catalog (actively exploited in the wild)
 
 [![CI](https://github.com/Akash-billawa/execution-aware-scanner/actions/workflows/ci.yaml/badge.svg)](https://github.com/Akash-billawa/execution-aware-scanner/actions/workflows/ci.yaml)
 [![Docker](https://img.shields.io/badge/docker-ghcr.io-blue.svg)](https://ghcr.io/akash-billawa/execution-aware-scanner)
