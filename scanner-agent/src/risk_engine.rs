@@ -528,7 +528,7 @@ mod tests {
             labels: BTreeMap::new(),
         };
 
-        let finding = engine.evaluate(identity, signal);
+        let finding = engine.evaluate(identity, signal, None);
         assert!(finding.is_none());
     }
 
@@ -536,17 +536,17 @@ mod tests {
     fn test_kev_prioritizes_dormant() {
         let engine = ExfRiskEngine::new(create_test_config());
 
-  // Dormant but KEV - should produce finding
-  let signal = RiskSignal {
-    cve: "CVE-2025-8888".to_string(),
-    cvss: 7.5,
-    epss: 0.3,
-    kev: true,
-    runtime: RuntimeDisposition::Dormant,
-    package: "log4j".to_string(),
-    observed_paths: BTreeSet::new(),
-    signal_weight: 0.0,
-  };
+        // Dormant but KEV - should produce finding
+        let signal = RiskSignal {
+            cve: "CVE-2025-8888".to_string(),
+            cvss: 7.5,
+            epss: 0.3,
+            kev: true,
+            runtime: RuntimeDisposition::Dormant,
+            package: "log4j".to_string(),
+            observed_paths: BTreeSet::new(),
+            signal_weight: 0.0,
+        };
 
         let identity = RuntimeIdentity {
             node_name: "test".to_string(),
@@ -558,7 +558,7 @@ mod tests {
             labels: BTreeMap::new(),
         };
 
-        let finding = engine.evaluate(identity, signal);
+        let finding = engine.evaluate(identity, signal, None);
         assert!(finding.is_some());
         assert_eq!(finding.unwrap().priority, Priority::High);
     }

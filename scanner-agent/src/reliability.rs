@@ -524,7 +524,7 @@ mod tests {
         rt.block_on(async {
             let config = ReliabilityConfig {
                 circuit_breaker_threshold: 3,
-                circuit_breaker_recovery_secs: 0, // Immediate recovery for test
+                circuit_breaker_recovery_secs: 1, // 1 second recovery for test
                 ..Default::default()
             };
 
@@ -544,8 +544,8 @@ mod tests {
             assert_eq!(cb.state().await, CircuitState::Open);
             assert!(!cb.should_proceed().await);
 
-            // Wait and check half-open
-            tokio::time::sleep(Duration::from_millis(100)).await;
+            // Wait for recovery and check half-open
+            tokio::time::sleep(Duration::from_secs(2)).await;
             assert!(cb.should_proceed().await);
             assert_eq!(cb.state().await, CircuitState::HalfOpen);
 

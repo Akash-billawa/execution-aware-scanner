@@ -303,7 +303,7 @@ mod tests {
       signal_weight: 2.0,
     },
     score: 9.5,
-    priority: Priority::Critical,
+            priority: scanner_common::Priority::Critical,
     recommendation: "Patch immediately".to_string(),
     explainability: scanner_common::ExplainabilityReport::default(),
   };
