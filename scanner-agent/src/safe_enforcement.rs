@@ -296,7 +296,7 @@ impl RiskConfig {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use scanner_common::{RiskSignal, RuntimeDisposition, RuntimeIdentity};
+    use scanner_common::{ExplainabilityReport, RiskSignal, RuntimeDisposition, RuntimeIdentity};
 
     fn create_test_finding(cvss: f32, priority: Priority) -> Finding {
         Finding {
@@ -324,6 +324,7 @@ mod tests {
             score: cvss,
             priority,
             recommendation: "Update".to_string(),
+            explainability: ExplainabilityReport::default(),
         }
     }
 

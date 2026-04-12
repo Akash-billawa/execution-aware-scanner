@@ -428,8 +428,20 @@ async fn run_analysis_pipeline(
                 signal_weight: workload.signal_weight(),
               };
 
-            if let Some(finding) =
-              risk_engine.evaluate(identity.clone(), signal)
+              // Get runtime signals for explainability
+              let runtime_signals: Vec<scanner_common::SignalEvidence> = workload
+                .signals
+                .iter()
+                .map(|s| scanner_common::SignalEvidence {
+                  signal_type: format!("{:?}", s.signal_type),
+                  timestamp_ns: s.timestamp_ns,
+                  details: s.details.clone(),
+                  confidence: s.weight.min(1.0), // Weight as confidence
+                })
+                .collect();
+
+              if let Some(finding) =
+                risk_engine.evaluate(identity.clone(), signal, Some(&runtime_signals))
             {
               let priority = format!("{:?}", finding.priority);
               metrics.inc_findings(&priority);
@@ -471,22 +483,22 @@ async fn run_analysis_pipeline(
 
                     for (component, runtime) in components {
             for cve in component.cves {
-              let signal = scanner_common::RiskSignal {
-                cve: cve.id.clone(),
-                cvss: cve.cvss,
-                epss: *intel_state.epss.get(&cve.id).unwrap_or(&0.0),
-                kev: intel_state.kev.contains(&cve.id),
-                runtime: runtime.clone(),
-                package: component.package.clone(),
-                observed_paths: workload
-                  .observed_paths
-                  .intersection(&component.paths)
-                  .cloned()
-                  .collect(),
-                signal_weight: workload.signal_weight(),
-              };
+  let signal = scanner_common::RiskSignal {
+    cve: cve.id.clone(),
+    cvss: cve.cvss,
+    epss: *intel_state.epss.get(&cve.id).unwrap_or(&0.0),
+    kev: intel_state.kev.contains(&cve.id),
+    runtime: runtime.clone(),
+    package: component.package.clone(),
+    observed_paths: workload
+      .observed_paths
+      .intersection(&component.paths)
+      .cloned()
+      .collect(),
+    signal_weight: workload.signal_weight(),
+  };
 
-            if let Some(finding) = risk_engine.evaluate(identity.clone(), signal) {
+  if let Some(finding) = risk_engine.evaluate(identity.clone(), signal, None) {
               let priority = format!("{:?}", finding.priority);
               metrics.inc_findings(&priority);
               findings.push(finding.clone());
@@ -661,22 +673,22 @@ async fn run_degraded_pipeline(
     for (component, runtime) in components {
         for cve in component.cves {
             metrics.inc_events();
-          let signal = scanner_common::RiskSignal {
-            cve: cve.id.clone(),
-            cvss: cve.cvss,
-            epss: *intel_state.epss.get(&cve.id).unwrap_or(&0.0),
-            kev: intel_state.kev.contains(&cve.id),
-            runtime: runtime.clone(),
-            package: component.package.clone(),
-            observed_paths: component
-              .paths
-              .iter()
-              .filter(|path| observed_paths.contains(*path))
-              .cloned()
-              .collect(),
-            signal_weight: 0.0, // Degraded mode - no signal weighting
-          };
-    if let Some(finding) = risk_engine.evaluate(identity.clone(), signal) {
+              let signal = scanner_common::RiskSignal {
+                cve: cve.id.clone(),
+                cvss: cve.cvss,
+                epss: *intel_state.epss.get(&cve.id).unwrap_or(&0.0),
+                kev: intel_state.kev.contains(&cve.id),
+                runtime: runtime.clone(),
+                package: component.package.clone(),
+                observed_paths: component
+                  .paths
+                  .iter()
+                  .filter(|path| observed_paths.contains(*path))
+                  .cloned()
+                  .collect(),
+                signal_weight: 0.0, // Degraded mode - no signal weighting
+              };
+              if let Some(finding) = risk_engine.evaluate(identity.clone(), signal, None) {
       let priority = format!("{:?}", finding.priority);
       metrics.inc_findings(&priority);
       findings.push(finding.clone());

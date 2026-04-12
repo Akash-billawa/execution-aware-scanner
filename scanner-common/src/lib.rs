@@ -135,6 +135,7 @@ pub struct Finding {
     pub score: f32,
     pub priority: Priority,
     pub recommendation: String,
+    pub explainability: ExplainabilityReport, // NEW: Detailed reasoning
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -144,6 +145,53 @@ pub enum Priority {
     Medium,
     High,
     Critical,
+}
+
+/// Signal evidence for explainability
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct SignalEvidence {
+    pub signal_type: String,
+    pub timestamp_ns: u64,
+    pub details: String,
+    pub confidence: f32, // 0.0 - 1.0
+}
+
+/// Risk components breakdown
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct RiskComponents {
+    pub cvss: f32,
+    pub epss: f32,
+    pub kev: bool,
+    pub runtime: RuntimeDisposition,
+    pub signal_boost: f32,
+}
+
+/// Explainability report for every finding
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct ExplainabilityReport {
+    pub decision: String,
+    pub confidence: f32, // 0.0 - 1.0
+    pub components: RiskComponents,
+    pub signals: Vec<SignalEvidence>,
+    pub ablation_disabled: Vec<String>,
+}
+
+impl Default for ExplainabilityReport {
+    fn default() -> Self {
+        Self {
+            decision: "Unknown".to_string(),
+            confidence: 0.0,
+            components: RiskComponents {
+                cvss: 0.0,
+                epss: 0.0,
+                kev: false,
+                runtime: RuntimeDisposition::Unknown,
+                signal_boost: 0.0,
+            },
+            signals: Vec::new(),
+            ablation_disabled: Vec::new(),
+        }
+    }
 }
 
 // Manual serde implementations for event types with large arrays

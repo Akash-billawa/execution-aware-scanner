@@ -406,38 +406,39 @@ impl WebhookManager {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use scanner_common::{Priority, RiskSignal, RuntimeDisposition, RuntimeIdentity};
-    use std::collections::{BTreeMap, BTreeSet};
+  use super::*;
+  use scanner_common::{ExplainabilityReport, Priority, RiskSignal, RuntimeDisposition, RuntimeIdentity};
+  use std::collections::{BTreeMap, BTreeSet};
 
-    fn create_test_finding(priority: Priority) -> Finding {
-        Finding {
-            id: "test-123".to_string(),
-            detected_at: chrono::Utc::now(),
-            identity: RuntimeIdentity {
-                node_name: "test".to_string(),
-                namespace: "default".to_string(),
-                pod_name: "test-pod".to_string(),
-                container_name: "app".to_string(),
-                image: "test:latest".to_string(),
-                workload: "test".to_string(),
-                labels: BTreeMap::new(),
-            },
-  signal: RiskSignal {
-    cve: "CVE-2025-1234".to_string(),
-    cvss: 9.0,
-    epss: 0.8,
-    kev: true,
-    runtime: RuntimeDisposition::Reachable,
-    package: "test".to_string(),
-    observed_paths: BTreeSet::new(),
-    signal_weight: 0.0,
-  },
-            score: 9.0,
-            priority,
-            recommendation: "Fix it".to_string(),
-        }
+  fn create_test_finding(priority: Priority) -> Finding {
+    Finding {
+      id: "test-123".to_string(),
+      detected_at: chrono::Utc::now(),
+      identity: RuntimeIdentity {
+        node_name: "test".to_string(),
+        namespace: "default".to_string(),
+        pod_name: "test-pod".to_string(),
+        container_name: "app".to_string(),
+        image: "test:latest".to_string(),
+        workload: "test".to_string(),
+        labels: BTreeMap::new(),
+      },
+      signal: RiskSignal {
+        cve: "CVE-2025-1234".to_string(),
+        cvss: 9.0,
+        epss: 0.8,
+        kev: true,
+        runtime: RuntimeDisposition::Reachable,
+        package: "test".to_string(),
+        observed_paths: BTreeSet::new(),
+        signal_weight: 0.0,
+      },
+      score: 9.0,
+      priority,
+      recommendation: "Fix it".to_string(),
+      explainability: ExplainabilityReport::default(),
     }
+  }
 
     #[test]
     fn test_should_export_filtering() {

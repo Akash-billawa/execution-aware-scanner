@@ -409,6 +409,7 @@ fn create_finding(cve: &str, priority: Priority, score: f32) -> Finding {
         score,
         priority,
         recommendation: "Update".to_string(),
+        explainability: scanner_common::ExplainabilityReport::default(),
     }
 }
 

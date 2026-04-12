@@ -282,32 +282,33 @@ mod tests {
     #[tokio::test]
     async fn mock_remediator_works() {
         let service = RemediatorService::new_mock();
-        let finding = Finding {
-            id: "test-123".to_string(),
-            detected_at: chrono::Utc::now(),
-            identity: scanner_common::RuntimeIdentity {
-                node_name: "test".to_string(),
-                namespace: "default".to_string(),
-                pod_name: "test-pod".to_string(),
-                container_name: "app".to_string(),
-                image: "test:latest".to_string(),
-                workload: "test-workload".to_string(),
-                labels: std::collections::BTreeMap::new(),
-            },
-  signal: scanner_common::RiskSignal {
-    cve: "CVE-2025-1234".to_string(),
-    cvss: 9.8,
-    epss: 0.95,
-    kev: true,
-    runtime: scanner_common::RuntimeDisposition::Reachable,
-    package: "openssl".to_string(),
-    observed_paths: std::collections::BTreeSet::new(),
-    signal_weight: 2.0,
-  },
-            score: 9.5,
-            priority: Priority::Critical,
-            recommendation: "Patch immediately".to_string(),
-        };
+  let finding = Finding {
+    id: "test-123".to_string(),
+    detected_at: chrono::Utc::now(),
+    identity: scanner_common::RuntimeIdentity {
+      node_name: "test".to_string(),
+      namespace: "default".to_string(),
+      pod_name: "test-pod".to_string(),
+      container_name: "app".to_string(),
+      image: "test:latest".to_string(),
+      workload: "test-workload".to_string(),
+      labels: std::collections::BTreeMap::new(),
+    },
+    signal: scanner_common::RiskSignal {
+      cve: "CVE-2025-1234".to_string(),
+      cvss: 9.8,
+      epss: 0.95,
+      kev: true,
+      runtime: scanner_common::RuntimeDisposition::Reachable,
+      package: "openssl".to_string(),
+      observed_paths: std::collections::BTreeSet::new(),
+      signal_weight: 2.0,
+    },
+    score: 9.5,
+    priority: Priority::Critical,
+    recommendation: "Patch immediately".to_string(),
+    explainability: scanner_common::ExplainabilityReport::default(),
+  };
 
         assert!(service.remediate_finding(&finding).await.is_ok());
     }
