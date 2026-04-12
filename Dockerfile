@@ -6,8 +6,12 @@ FROM rust:1.90-bookworm AS builder
 WORKDIR /src
 COPY . .
 
-# Install nightly toolchain for eBPF
-RUN rustup toolchain install nightly
+# Install nightly + rust-src (REQUIRED for build-std)
+RUN rustup toolchain install nightly \
+    && rustup component add rust-src --toolchain nightly
+
+# Optimize eBPF binary size
+ENV RUSTFLAGS="-C panic=abort"
 
 # Build eBPF with nightly and build-std (PRODUCTION WAY)
 RUN cargo +nightly build -p scanner-ebpf \

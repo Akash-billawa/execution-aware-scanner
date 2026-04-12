@@ -25,8 +25,10 @@ jobs:
       - name: Install Rust stable
         uses: dtolnay/rust-toolchain@stable
 
-      - name: Install Rust nightly (for eBPF)
-        run: rustup toolchain install nightly
+      - name: Install Rust nightly + rust-src (for eBPF)
+        run: |
+          rustup toolchain install nightly
+          rustup component add rust-src --toolchain nightly
 
       - name: Cache cargo
         uses: Swatinem/rust-cache@v2
@@ -41,8 +43,10 @@ jobs:
         env:
           SKIP_PROTO: 1
 
-      - name: Build scanner-ebpf (nightly)
-        run: cargo +nightly build -p scanner-ebpf --release --target bpfel-unknown-none -Z build-std=core
+      - name: Build scanner-ebpf (nightly + build-std)
+        run: |
+          export RUSTFLAGS="-C panic=abort"
+          cargo +nightly build -p scanner-ebpf --release --target bpfel-unknown-none -Z build-std=core
 
       - name: Run tests
         run: cargo test -p scanner-common --release
