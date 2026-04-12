@@ -1,0 +1,75 @@
+# Kubernetes Configuration
+# Use for: K8s DaemonSet deployment
+
+scanner:
+  runtime:
+    # Auto-populated from environment
+    node_name: "${NODE_NAME}"
+    pod_name: "${POD_NAME}"
+    namespace: "${POD_NAMESPACE}"
+    
+    sbom_dir: "/var/lib/scanner/sboms"
+    seccomp_output_dir: "/var/lib/scanner/seccomp"
+    analysis_interval_secs: 30
+  
+  bpf:
+    object_path: "/opt/scanner/scanner-ebpf.o"
+  
+  metrics:
+    bind_addr: "0.0.0.0:9898"
+  
+  intel:
+    refresh_interval_secs: 3600
+    feeds:
+      - name: "epss"
+        url: "https://api.first.org/data/v1/epss"
+      - name: "cisa_kev"
+        url: "https://api.cisa.gov/known-exploited-vulnerabilities"
+  
+  risk:
+    minimum_cvss: 6.0
+    minimum_epss: 0.1
+    critical_threshold: 9.0
+    high_threshold: 7.5
+    medium_threshold: 5.0
+  
+  # Webhook for cluster-wide alerting
+  webhook:
+    url: "${WEBHOOK_URL}"
+    type: "${WEBHOOK_TYPE:-generic}"
+    auth:
+      type: "bearer"
+      token: "${WEBHOOK_TOKEN}"
+    rate_limit: 60
+    min_severity: "HIGH"
+    alert_mode: "on_alert_only"
+  
+  # Production reliability
+  reliability:
+    channel_buffer_size: 10000
+    channel_high_water: 8000
+    channel_low_water: 5000
+    watchdog_timeout_secs: 60
+    max_consecutive_errors: 5
+    circuit_breaker_threshold: 10
+    circuit_breaker_recovery_secs: 60
+    health_check_interval_secs: 30
+    enable_degradation: true
+  
+  # Attack graph
+  attack_graph:
+    top_k: 3
+    min_enforcement_confidence: 0.8
+    min_enforcement_depth: 3
+    mmap_window_secs: 300
+    network_window_secs: 30
+    dedup_enabled: true
+
+# Resource limits (for reference)
+resources:
+  requests:
+    cpu: "100m"
+    memory: "256Mi"
+  limits:
+    cpu: "1000m"
+    memory: "512Mi"

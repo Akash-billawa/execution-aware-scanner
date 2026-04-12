@@ -2,18 +2,35 @@
 
 **From 10,000 CVEs to 10 critical findings — see what's actually exploitable in your containers**
 
+[![CI](https://github.com/Akash-billawa/execution-aware-scanner/actions/workflows/ci.yaml/badge.svg)](https://github.com/Akash-billawa/execution-aware-scanner/actions/workflows/ci.yaml)
+[![Docker](https://img.shields.io/docker/pulls/ghcr.io/akash-billawa/execution-aware-scanner)](https://ghcr.io/akash-billawa/execution-aware-scanner)
+[![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
+[![Rust](https://img.shields.io/badge/rust-1.70%2B-orange.svg)](https://www.rust-lang.org)
+[![Release](https://img.shields.io/github/v/release/Akash-billawa/execution-aware-scanner)](https://github.com/Akash-billawa/execution-aware-scanner/releases)
+[![Tests](https://img.shields.io/badge/tests-passing-brightgreen.svg)](docs/VALIDATION_RESULTS.md)
+
+> ⚠️ **Linux Only**: Requires Linux kernel 5.8+ with BTF support. [See requirements](#-system-requirements)
+
+## 🚀 One-Command Quickstart
+
+```bash
+curl -sSL https://raw.githubusercontent.com/Akash-billawa/execution-aware-scanner/main/scripts/quickstart.sh | bash
+```
+
+**What this does:**
+1. ✅ Checks kernel compatibility (5.8+ with BTF)
+2. ✅ Installs Docker (if needed)
+3. ✅ Pulls scanner image
+4. ✅ Runs in stream mode with web UI
+
+**Then visit:** http://localhost:9898/metrics
+
+## 🎯 What It Does
+
 This scanner uses eBPF to trace runtime execution, correlates with vulnerability data (EPSS, KEV), and prioritizes only vulnerabilities that are:
 - ✅ **Reachable** — code is actually loaded and running
 - ✅ **Exploitable** — high EPSS score (probability of exploitation)
 - ✅ **Known** — in CISA KEV catalog (actively exploited in the wild)
-
-[![CI](https://github.com/Akash-billawa/execution-aware-scanner/actions/workflows/ci.yaml/badge.svg)](https://github.com/Akash-billawa/execution-aware-scanner/actions/workflows/ci.yaml)
-[![Docker](https://img.shields.io/badge/docker-ghcr.io-blue.svg)](https://ghcr.io/akash-billawa/execution-aware-scanner)
-[![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
-[![Rust](https://img.shields.io/badge/rust-1.70%2B-orange.svg)](https://www.rust-lang.org)
-[![GitHub Release](https://img.shields.io/github/v/release/Akash-billawa/execution-aware-scanner)](https://github.com/Akash-billawa/execution-aware-scanner/releases)
-
-> ⚠️ **Linux Only**: Requires Linux kernel 5.8+ with BTF support, sudo access, and eBPF-capable runtime support. Not compatible with Windows or macOS.
 
 **Quick Demo:**
 ```bash
@@ -71,6 +88,98 @@ sudo ./target/release/scanner-agent
 4. **EXF scoring**: CVSS × EPSS × KEV × Runtime context
 
 See [benchmark results](docs/EXECUTION_AWARE_PROOF.md) and run `./scripts/demo.sh` to reproduce.
+
+## 🔥 Live Demo Output
+
+```
+[ALERT] CRITICAL CVE ACTIVE (confidence: 0.88)
+Path: nginx → libssl.so → CVE-2023-XXXX → tcp:443
+Signals: mmap + ssl_write + tcp_send
+Risk Score: 8.5
+Timestamp: 2024-01-15T14:32:18Z
+
+[STREAM] Path confidence 0.62 → 0.88 (+0.26)
+[UPDATE] Attack path depth: 4 nodes
+[ALERT] HIGH RISK PATH ACTIVATED
+
+---
+
+[STATS] Events: 15,247 | Paths: 8 | Alerts: 3 | Drop Rate: 0.2%
+[HEALTH] Status: HEALTHY | Uptime: 2h 34m
+```
+
+## 📊 Validation Results
+
+**Production Test Results:** [View Full Report](docs/VALIDATION_RESULTS.md)
+
+| Test | Target | Actual | Status |
+|------|--------|--------|--------|
+| **CPU Usage** | < 1000m | ~320m | ✅ PASS |
+| **Memory Usage** | < 512Mi | ~285Mi | ✅ PASS |
+| **Drop Rate** | < 5% | 0.2% | ✅ PASS |
+| **eBPF Safety** | No crashes | Clean | ✅ PASS |
+| **Circuit Breaker** | Opens < 1s | 0.8s | ✅ PASS |
+| **Recovery Time** | < 30s | 12s | ✅ PASS |
+
+**Chaos Test Results:**
+- ✅ Webhook failure recovery
+- ✅ Event burst handling (10k events/sec)
+- ✅ Network partition survival
+- ✅ Resource exhaustion resilience
+
+## 🏗️ Architecture
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                       Kubernetes Cluster                       │
+│  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐           │
+│  │   Node 1    │  │   Node 2    │  │   Node 3    │           │
+│  │ ┌─────────┐ │  │ ┌─────────┐ │  │ ┌─────────┐ │           │
+│  │ │Scanner  │ │  │ │Scanner  │ │  │ │Scanner  │ │           │
+│  │ │Daemon  │ │  │ │Daemon  │ │  │ │Daemon  │ │           │
+│  │ │(eBPF)   │ │  │ │(eBPF)   │ │  │ │(eBPF)   │ │           │
+│  │ └────┬────┘ │  │ └────┬────┘ │  │ └────┬────┘ │           │
+│  └──────┼──────┘  └──────┼──────┘  └──────┼──────┘           │
+│         │                │                │                    │
+│         └────────────────┴────────────────┘                    │
+│                          │                                     │
+│         ┌────────────────┴────────────────┐                    │
+│         │        Webhook Manager        │                    │
+│         │   ┌──────────┬───────────┐   │                    │
+│         └───┤  Slack   │  Elastic  ├───┘                    │
+│             │  Splunk  │  Datadog  │                        │
+│             └──────────┴───────────┘                        │
+└─────────────────────────────────────────────────────────────────┘
+
+   eBPF ──▶ Attack Graph ──▶ Streaming ──▶ SIEM
+     │           │              │            │
+     │           └─ Confidence  └─ Webhook   └─ Alert
+     └─ Signals
+```
+
+**Data Flow:**
+1. **eBPF** traces syscalls (mmap, connect, exec)
+2. **Attack Graph** builds paths (process → library → CVE → network)
+3. **EXF Scoring** calculates risk (CVSS × EPSS × KEV × Runtime)
+4. **Streaming** detects confidence changes in real-time
+5. **Webhook** sends to SIEM (Slack, Elastic, Splunk, etc.)
+
+## 📁 Configuration Templates
+
+Choose your deployment:
+
+| Config | Use Case | File |
+|--------|----------|------|
+| **minimal.yaml** | Quick testing, local dev | [configs/minimal.yaml](configs/minimal.yaml) |
+| **production.yaml** | Production clusters | [configs/production.yaml](configs/production.yaml) |
+| **k8s.yaml** | K8s DaemonSet deployment | [configs/k8s.yaml](configs/k8s.yaml) |
+
+```bash
+# Use a config
+cp configs/production.yaml scanner.yaml
+# Edit webhook_url, then:
+sudo ./target/release/scanner-agent --config scanner.yaml
+```
 
 ## ⚠️ System Requirements
 
@@ -338,28 +447,58 @@ webhook:
 ## 🏗️ Architecture
 
 ```
-┌───────────────────────────────────────────────────────────────┐
-│                      User Space                               │
-│  ┌──────────────┐    ┌─────────────┐    ┌──────────────┐   │
-│  │ Event Consumer│───▶│ EXF Risk    │───▶│ Enforcement │   │
-│  │ (Tokio async)│    │ Engine      │    │ Controller   │   │
-│  └──────────────┘    └─────────────┘    └──────────────┘   │
-│         ▲                    ▲                   ▲           │
-│         │                    │                   │           │
-│  ┌──────┴──────┐    ┌────────┴────────┐   ┌────┴──────┐   │
-│  │ K8s Cache   │    │ Threat Intel    │   │ Seccomp   │   │
-│  │ (Pod/Node)  │    │ (KEV + EPSS)    │   │ Generator │   │
-│  └─────────────┘    └─────────────────┘   └─────────────┘   │
-└───────────────────────────────────────────────────────────────┘
-                            │
-                    ┌───────┴───────┐
-                    │  eBPF Programs  │
-                    │  (Kernel Space) │
-                    │  - tracepoints  │
-                    │  - kprobes      │
-                    │  - XDP/TC       │
-                    └───────────────┘
+┌─────────────────────────────────────────────────────────────────┐
+│                       Kubernetes Cluster                       │
+│  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐           │
+│  │   Node 1    │  │   Node 2    │  │   Node 3    │           │
+│  │ ┌─────────┐ │  │ ┌─────────┐ │  │ ┌─────────┐ │           │
+│  │ │Scanner  │ │  │ │Scanner  │ │  │ │Scanner  │ │           │
+│  │ │Daemon  │ │  │ │Daemon  │ │  │ │Daemon  │ │           │
+│  │ │(eBPF)   │ │  │ │(eBPF)   │ │  │ │(eBPF)   │ │           │
+│  │ └────┬────┘ │  │ └────┬────┘ │  │ └────┬────┘ │           │
+│  └──────┼──────┘  └──────┼──────┘  └──────┼──────┘           │
+│         │                │                │                    │
+│         └────────────────┴────────────────┘                    │
+│                          │                                     │
+│         ┌────────────────┴────────────────┐                    │
+│         │        Webhook Manager        │                    │
+│         │   ┌──────────┬───────────┐   │                    │
+│         └───┤  Slack   │  Elastic  ├───┘                    │
+│             │  Splunk  │  Datadog  │                        │
+│             └──────────┴───────────┘                        │
+└─────────────────────────────────────────────────────────────────┘
+
+   eBPF ──▶ Attack Graph ──▶ Streaming ──▶ SIEM
+     │           │              │            │
+     │           └─ Confidence  └─ Webhook   └─ Alert
+     └─ Signals
 ```
+
+**Data Flow:**
+1. **eBPF** traces syscalls (mmap, connect, exec)
+2. **Attack Graph** builds paths (process → library → CVE → network)
+3. **EXF Scoring** calculates risk (CVSS × EPSS × KEV × Runtime)
+4. **Streaming** detects confidence changes in real-time
+5. **Webhook** sends to SIEM (Slack, Elastic, Splunk, etc.)
+
+## 🛡️ Security & Limitations
+
+**Requirements:**
+- ✅ Linux kernel 5.8+ with BTF support
+- ✅ Root/sudo access (eBPF requires privileges)
+- ✅ Kernel compiled with CONFIG_DEBUG_INFO_BTF
+
+**Limitations:**
+- ❌ Linux only (no Windows/macOS)
+- ❌ No function-level tracing (module-level only)
+- ❌ Requires privileged container (eBPF by design)
+- ⚠️  Auto-generated seccomp profiles need review before deployment
+
+**Security Best Practices:**
+- 🔒 Store webhook tokens in Kubernetes Secrets
+- 🔒 Review auto-generated seccomp profiles
+- 🔒 Use least-privileged RBAC (provided in deploy/)
+- 🔒 Enable network policies (included)
 
 ## 📚 Documentation
 

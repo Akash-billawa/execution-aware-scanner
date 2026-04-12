@@ -1,0 +1,57 @@
+# Production Configuration
+# Use for: Production clusters, high-volume workloads
+
+scanner:
+  runtime:
+    node_name: ""  # Auto-detected from env
+    sbom_dir: "/var/lib/scanner/sboms"
+    seccomp_output_dir: "/var/lib/scanner/seccomp"
+    analysis_interval_secs: 30
+  
+  bpf:
+    object_path: "/opt/scanner/scanner-ebpf.o"
+  
+  metrics:
+    bind_addr: "0.0.0.0:9898"
+  
+  risk:
+    minimum_cvss: 6.0
+    minimum_epss: 0.1
+    weight_kev: 1.5
+    weight_reachable: 1.5
+  
+  # Webhook configuration
+  webhook:
+    url: ""  # Set via env: WEBHOOK_URL
+    type: "generic"  # generic, elastic, splunk, slack, teams, datadog
+    auth:
+      type: "none"  # none, bearer, basic, apikey
+    rate_limit: 60  # Events per minute
+    min_severity: "HIGH"
+    alert_mode: "on_alert_only"  # on_alert_only, on_update, on_every_event
+  
+  # Reliability settings
+  reliability:
+    channel_buffer_size: 10000
+    channel_high_water: 8000
+    channel_low_water: 5000
+    watchdog_timeout_secs: 60
+    max_consecutive_errors: 5
+    circuit_breaker_threshold: 10
+    circuit_breaker_recovery_secs: 60
+    health_check_interval_secs: 30
+    enable_degradation: true
+  
+  # Attack graph settings
+  attack_graph:
+    top_k: 3
+    min_enforcement_confidence: 0.8
+    min_enforcement_depth: 3
+    mmap_window_secs: 300
+    network_window_secs: 30
+    dedup_enabled: true
+
+# Logging
+log:
+  level: "info"
+  format: "json"

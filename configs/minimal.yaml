@@ -1,0 +1,19 @@
+# Minimal Configuration
+# Use for: Quick testing, local development
+
+scanner:
+  runtime:
+    node_name: "localhost"
+    sbom_dir: "./sboms"
+    seccomp_output_dir: "./seccomp"
+    analysis_interval_secs: 60
+  
+  bpf:
+    object_path: "./scanner-ebpf.o"
+  
+  metrics:
+    bind_addr: "0.0.0.0:9898"
+  
+  risk:
+    minimum_cvss: 7.0
+    minimum_epss: 0.1
