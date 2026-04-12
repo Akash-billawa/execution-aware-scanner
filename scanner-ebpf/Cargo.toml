@@ -8,9 +8,9 @@ license.workspace = true
 path = "src/lib.rs"
 
 [dependencies]
-# Pin to 0.1.0 which has the old API compatible with our code
-aya-ebpf = "=0.1.0"
-aya-log-ebpf = "=0.1.0"
+# Modern Aya eBPF stack (0.1.2 was yanked, using 0.1.1)
+aya-ebpf = "0.1.1"
+aya-log-ebpf = "0.1.0"
 
 [profile.dev]
 panic = "abort"

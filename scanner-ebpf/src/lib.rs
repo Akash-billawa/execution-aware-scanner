@@ -5,13 +5,13 @@ mod events;
 mod maps;
 
 use aya_ebpf::{
-    bindings::sock,
     helpers::{
-        bpf_get_current_cgroup_id, bpf_get_current_comm, bpf_get_current_pid_tgid, bpf_ktime_get_ns,
+        bpf_get_current_cgroup_id, bpf_get_current_comm, bpf_get_current_pid_tgid,
+        bpf_get_current_uid_gid, bpf_ktime_get_ns, bpf_probe_read_kernel, bpf_probe_read_user,
     },
     macros::{kprobe, lsm, map, tracepoint, xdp},
     maps::{HashMap, LruHashMap, RingBuf},
-    programs::{KProbeContext, LsmContext, TracePointContext, XdpContext},
+    programs::{LsmContext, ProbeContext, TracePointContext, XdpContext},
 };
 use aya_log_ebpf::{debug, info, warn};
 use events::*;
@@ -25,7 +25,7 @@ use maps::*;
 // 1. EXECUTION MONITORING (Tracepoints)
 // ───────────────────────────────────────────────────────────────────────────
 
-#[tracepoint(name = "sys_enter_execve")]
+#[tracepoint(category = "syscalls", name = "sys_enter_execve")]
 pub fn trace_execve(ctx: TracePointContext) -> u32 {
     match unsafe { try_execve(&ctx) } {
         Ok(ret) => ret,
@@ -33,7 +33,7 @@ pub fn trace_execve(ctx: TracePointContext) -> u32 {
     }
 }
 
-#[tracepoint(name = "sys_enter_execveat")]
+#[tracepoint(category = "syscalls", name = "sys_enter_execveat")]
 pub fn trace_execveat(ctx: TracePointContext) -> u32 {
     trace_execve(ctx)
 }
@@ -86,7 +86,7 @@ unsafe fn try_execve(ctx: &TracePointContext) -> Result<u32, i64> {
         log_security_event(cgroup_id, SecurityEventType::SuspiciousExec);
     }
 
-    debug!("Process started");
+    debug!("Process started",);
     Ok(0)
 }
 
@@ -94,7 +94,7 @@ unsafe fn try_execve(ctx: &TracePointContext) -> Result<u32, i64> {
 // 2. FILE MONITORING (Tracepoints + LSM)
 // ───────────────────────────────────────────────────────────────────────────
 
-#[tracepoint(name = "sys_enter_openat")]
+#[tracepoint(category = "syscalls", name = "sys_enter_openat")]
 pub fn trace_openat(ctx: TracePointContext) -> u32 {
     match unsafe { try_file_event(&ctx, EventKind::Open) } {
         Ok(ret) => ret,
@@ -102,12 +102,12 @@ pub fn trace_openat(ctx: TracePointContext) -> u32 {
     }
 }
 
-#[tracepoint(name = "sys_enter_openat2")]
+#[tracepoint(category = "syscalls", name = "sys_enter_openat2")]
 pub fn trace_openat2(ctx: TracePointContext) -> u32 {
     trace_openat(ctx)
 }
 
-#[tracepoint(name = "sys_enter_mmap")]
+#[tracepoint(category = "syscalls", name = "sys_enter_mmap")]
 pub fn trace_mmap(ctx: TracePointContext) -> u32 {
     match unsafe { try_file_event(&ctx, EventKind::Mmap) } {
         Ok(ret) => ret,
@@ -115,7 +115,7 @@ pub fn trace_mmap(ctx: TracePointContext) -> u32 {
     }
 }
 
-#[tracepoint(name = "sys_enter_mprotect")]
+#[tracepoint(category = "syscalls", name = "sys_enter_mprotect")]
 pub fn trace_mprotect(ctx: TracePointContext) -> u32 {
     match unsafe { try_file_event(&ctx, EventKind::Mprotect) } {
         Ok(ret) => ret,
@@ -181,48 +181,48 @@ unsafe fn try_file_event(ctx: &TracePointContext, kind: EventKind) -> Result<u32
 // 3. NETWORK MONITORING (Kprobes)
 // ───────────────────────────────────────────────────────────────────────────
 
-#[kprobe(name = "tcp_v4_connect")]
-pub fn trace_tcp_connect(ctx: KProbeContext) -> u32 {
+#[kprobe(function = "tcp_v4_connect")]
+pub fn trace_tcp_connect(ctx: ProbeContext) -> u32 {
     match unsafe { try_tcp_connect(&ctx) } {
         Ok(ret) => ret,
         Err(_) => 0,
     }
 }
 
-#[kprobe(name = "tcp_v6_connect")]
-pub fn trace_tcp_connect_v6(ctx: KProbeContext) -> u32 {
+#[kprobe(function = "tcp_v6_connect")]
+pub fn trace_tcp_connect_v6(ctx: ProbeContext) -> u32 {
     match unsafe { try_tcp_connect_v6(&ctx) } {
         Ok(ret) => ret,
         Err(_) => 0,
     }
 }
 
-#[kprobe(name = "tcp_close")]
-pub fn trace_tcp_close(ctx: KProbeContext) -> u32 {
+#[kprobe(function = "tcp_close")]
+pub fn trace_tcp_close(ctx: ProbeContext) -> u32 {
     match unsafe { try_tcp_close(&ctx) } {
         Ok(ret) => ret,
         Err(_) => 0,
     }
 }
 
-#[kprobe(name = "inet_bind")]
-pub fn trace_bind(ctx: KProbeContext) -> u32 {
+#[kprobe(function = "inet_bind")]
+pub fn trace_bind(ctx: ProbeContext) -> u32 {
     match unsafe { try_bind(&ctx) } {
         Ok(ret) => ret,
         Err(_) => 0,
     }
 }
 
-#[kprobe(name = "udp_sendmsg")]
-pub fn trace_udp_send(ctx: KProbeContext) -> u32 {
+#[kprobe(function = "udp_sendmsg")]
+pub fn trace_udp_send(ctx: ProbeContext) -> u32 {
     match unsafe { try_udp(&ctx, EventKind::UdpSend) } {
         Ok(ret) => ret,
         Err(_) => 0,
     }
 }
 
-#[kprobe(name = "udp_recvmsg")]
-pub fn trace_udp_recv(ctx: KProbeContext) -> u32 {
+#[kprobe(function = "udp_recvmsg")]
+pub fn trace_udp_recv(ctx: ProbeContext) -> u32 {
     match unsafe { try_udp(&ctx, EventKind::UdpRecv) } {
         Ok(ret) => ret,
         Err(_) => 0,
@@ -230,8 +230,8 @@ pub fn trace_udp_recv(ctx: KProbeContext) -> u32 {
 }
 
 // NEW: tcp_sendmsg for data exfiltration detection
-#[kprobe(name = "tcp_sendmsg")]
-pub fn trace_tcp_sendmsg(ctx: KProbeContext) -> u32 {
+#[kprobe(function = "tcp_sendmsg")]
+pub fn trace_tcp_sendmsg(ctx: ProbeContext) -> u32 {
     match unsafe { try_tcp_sendmsg(&ctx) } {
         Ok(ret) => ret,
         Err(_) => 0,
@@ -239,15 +239,15 @@ pub fn trace_tcp_sendmsg(ctx: KProbeContext) -> u32 {
 }
 
 // NEW: tcp_recvmsg for C2 detection
-#[kprobe(name = "tcp_recvmsg")]
-pub fn trace_tcp_recvmsg(ctx: KProbeContext) -> u32 {
+#[kprobe(function = "tcp_recvmsg")]
+pub fn trace_tcp_recvmsg(ctx: ProbeContext) -> u32 {
     match unsafe { try_tcp_recvmsg(&ctx) } {
         Ok(ret) => ret,
         Err(_) => 0,
     }
 }
 
-unsafe fn try_tcp_connect(ctx: &KProbeContext) -> Result<u32, i64> {
+unsafe fn try_tcp_connect(ctx: &ProbeContext) -> Result<u32, i64> {
     let pid_tgid = bpf_get_current_pid_tgid();
     let cgroup_id = bpf_get_current_cgroup_id();
 
@@ -262,7 +262,7 @@ unsafe fn try_tcp_connect(ctx: &KProbeContext) -> Result<u32, i64> {
 
     // Check against threat intelligence IPs
     if THREAT_INTEL_IPS.get(&daddr).is_some() {
-        warn!("Connection to malicious IP detected");
+        warn!("Connection to malicious IP detected",);
         log_security_event(cgroup_id, SecurityEventType::MaliciousConnection);
     }
 
@@ -309,12 +309,12 @@ unsafe fn try_tcp_connect(ctx: &KProbeContext) -> Result<u32, i64> {
     Ok(0)
 }
 
-unsafe fn try_tcp_connect_v6(ctx: &KProbeContext) -> Result<u32, i64> {
+unsafe fn try_tcp_connect_v6(ctx: &ProbeContext) -> Result<u32, i64> {
     // IPv6 support (simplified - full impl would handle v6 addrs)
     try_tcp_connect(ctx)
 }
 
-unsafe fn try_tcp_close(ctx: &KProbeContext) -> Result<u32, i64> {
+unsafe fn try_tcp_close(ctx: &ProbeContext) -> Result<u32, i64> {
     // Cleanup connection tracking
     let sock: *const sock = ctx.arg(0).ok_or(1i64)?;
     let sk_common = &(*sock).__sk_common;
@@ -325,7 +325,7 @@ unsafe fn try_tcp_close(ctx: &KProbeContext) -> Result<u32, i64> {
     Ok(0)
 }
 
-unsafe fn try_bind(ctx: &KProbeContext) -> Result<u32, i64> {
+unsafe fn try_bind(ctx: &ProbeContext) -> Result<u32, i64> {
     let pid_tgid = bpf_get_current_pid_tgid();
     let cgroup_id = bpf_get_current_cgroup_id();
     let sock: *const sock = ctx.arg(0).ok_or(1i64)?;
@@ -354,7 +354,7 @@ unsafe fn try_bind(ctx: &KProbeContext) -> Result<u32, i64> {
     Ok(0)
 }
 
-unsafe fn try_udp(ctx: &KProbeContext, kind: EventKind) -> Result<u32, i64> {
+unsafe fn try_udp(ctx: &ProbeContext, kind: EventKind) -> Result<u32, i64> {
     let pid_tgid = bpf_get_current_pid_tgid();
     let cgroup_id = bpf_get_current_cgroup_id();
 
@@ -382,7 +382,7 @@ unsafe fn try_udp(ctx: &KProbeContext, kind: EventKind) -> Result<u32, i64> {
 }
 
 // NEW: tcp_sendmsg handler for data exfiltration detection
-unsafe fn try_tcp_sendmsg(ctx: &KProbeContext) -> Result<u32, i64> {
+unsafe fn try_tcp_sendmsg(ctx: &ProbeContext) -> Result<u32, i64> {
     let pid_tgid = bpf_get_current_pid_tgid();
     let cgroup_id = bpf_get_current_cgroup_id();
 
@@ -429,7 +429,7 @@ unsafe fn try_tcp_sendmsg(ctx: &KProbeContext) -> Result<u32, i64> {
 }
 
 // NEW: tcp_recvmsg handler for C2 detection
-unsafe fn try_tcp_recvmsg(ctx: &KProbeContext) -> Result<u32, i64> {
+unsafe fn try_tcp_recvmsg(ctx: &ProbeContext) -> Result<u32, i64> {
     let pid_tgid = bpf_get_current_pid_tgid();
     let cgroup_id = bpf_get_current_cgroup_id();
 
@@ -442,7 +442,7 @@ unsafe fn try_tcp_recvmsg(ctx: &KProbeContext) -> Result<u32, i64> {
 
     // Check against threat intelligence IPs
     if THREAT_INTEL_IPS.get(&sk_common.skc_daddr).is_some() {
-        warn!("Data received from malicious IP");
+        warn!("Data received from malicious IP",);
         log_security_event(cgroup_id, SecurityEventType::MaliciousConnection);
     }
 
@@ -541,7 +541,7 @@ unsafe fn try_file_open_lsm(_ctx: &LsmContext) -> Result<i32, i32> {
 // 5. PACKET FILTERING (XDP)
 // ───────────────────────────────────────────────────────────────────────────
 
-#[xdp(name = "scanner_xdp")]
+#[xdp]
 pub fn scanner_xdp(ctx: XdpContext) -> u32 {
     match unsafe { try_xdp(&ctx) } {
         Ok(ret) => ret,
@@ -654,7 +654,7 @@ unsafe fn update_file_cache(path: &[u8]) {
     let hash = hash_path(path);
     let now = bpf_ktime_get_ns();
 
-    if let Some(entry) = FILE_CACHE.get_mut(&hash) {
+    if let Some(entry) = FILE_CACHE.get_ptr_mut(&hash) {
         entry.last_access_ns = now;
         entry.access_count += 1;
     } else {
@@ -681,7 +681,7 @@ unsafe fn track_library_load(pid: u32, path: &[u8]) -> Result<(), i64> {
 }
 
 unsafe fn update_cgroup_stats(cgroup_id: u64, syscall_type: SyscallType) {
-    if let Some(stats) = CGROUP_STATS.get_mut(&cgroup_id) {
+    if let Some(stats) = CGROUP_STATS.get_ptr_mut(&cgroup_id) {
         stats.last_seen_ns = bpf_ktime_get_ns();
         match syscall_type {
             SyscallType::Exec => stats.exec_count += 1,
