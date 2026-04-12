@@ -408,17 +408,25 @@ async fn run_analysis_pipeline(
                                 vulns.len(),
                                 identity.image
                             );
-                            for vuln in vulns {
-                                // Convert to risk signal
-                                let signal = scanner_common::RiskSignal {
-                                    cve: vuln.cve.clone(),
-                                    cvss: vuln.cvss_score,
-                                    epss: *intel_state.epss.get(&vuln.cve).unwrap_or(&0.0),
-                                    kev: intel_state.kev.contains(&vuln.cve),
-                                    runtime: scanner_common::RuntimeDisposition::Reachable,
-                                    package: vuln.package.clone(),
-                                    observed_paths: workload.observed_paths.clone(),
-                                };
+            for vuln in vulns {
+              // Calculate runtime disposition based on signals
+              let runtime = if workload.signal_weight() > 0.0 {
+                scanner_common::RuntimeDisposition::Reachable
+              } else {
+                scanner_common::RuntimeDisposition::Dormant
+              };
+
+              // Convert to risk signal with signal weighting
+              let signal = scanner_common::RiskSignal {
+                cve: vuln.cve.clone(),
+                cvss: vuln.cvss_score,
+                epss: *intel_state.epss.get(&vuln.cve).unwrap_or(&0.0),
+                kev: intel_state.kev.contains(&vuln.cve),
+                runtime,
+                package: vuln.package.clone(),
+                observed_paths: workload.observed_paths.clone(),
+                signal_weight: workload.signal_weight(),
+              };
 
             if let Some(finding) =
               risk_engine.evaluate(identity.clone(), signal)
@@ -462,20 +470,21 @@ async fn run_analysis_pipeline(
                         .classify_runtime_paths(&identity.image, &workload.observed_paths);
 
                     for (component, runtime) in components {
-                        for cve in component.cves {
-                            let signal = scanner_common::RiskSignal {
-                                cve: cve.id.clone(),
-                                cvss: cve.cvss,
-                                epss: *intel_state.epss.get(&cve.id).unwrap_or(&0.0),
-                                kev: intel_state.kev.contains(&cve.id),
-                                runtime: runtime.clone(),
-                                package: component.package.clone(),
-                                observed_paths: workload
-                                    .observed_paths
-                                    .intersection(&component.paths)
-                                    .cloned()
-                                    .collect(),
-                            };
+            for cve in component.cves {
+              let signal = scanner_common::RiskSignal {
+                cve: cve.id.clone(),
+                cvss: cve.cvss,
+                epss: *intel_state.epss.get(&cve.id).unwrap_or(&0.0),
+                kev: intel_state.kev.contains(&cve.id),
+                runtime: runtime.clone(),
+                package: component.package.clone(),
+                observed_paths: workload
+                  .observed_paths
+                  .intersection(&component.paths)
+                  .cloned()
+                  .collect(),
+                signal_weight: workload.signal_weight(),
+              };
 
             if let Some(finding) = risk_engine.evaluate(identity.clone(), signal) {
               let priority = format!("{:?}", finding.priority);
@@ -651,20 +660,21 @@ async fn run_degraded_pipeline(
     for (component, runtime) in components {
         for cve in component.cves {
             metrics.inc_events();
-            let signal = scanner_common::RiskSignal {
-                cve: cve.id.clone(),
-                cvss: cve.cvss,
-                epss: *intel_state.epss.get(&cve.id).unwrap_or(&0.0),
-                kev: intel_state.kev.contains(&cve.id),
-                runtime: runtime.clone(),
-                package: component.package.clone(),
-                observed_paths: component
-                    .paths
-                    .iter()
-                    .filter(|path| observed_paths.contains(*path))
-                    .cloned()
-                    .collect(),
-            };
+          let signal = scanner_common::RiskSignal {
+            cve: cve.id.clone(),
+            cvss: cve.cvss,
+            epss: *intel_state.epss.get(&cve.id).unwrap_or(&0.0),
+            kev: intel_state.kev.contains(&cve.id),
+            runtime: runtime.clone(),
+            package: component.package.clone(),
+            observed_paths: component
+              .paths
+              .iter()
+              .filter(|path| observed_paths.contains(*path))
+              .cloned()
+              .collect(),
+            signal_weight: 0.0, // Degraded mode - no signal weighting
+          };
     if let Some(finding) = risk_engine.evaluate(identity.clone(), signal) {
       let priority = format!("{:?}", finding.priority);
       metrics.inc_findings(&priority);

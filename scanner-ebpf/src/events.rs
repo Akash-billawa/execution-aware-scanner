@@ -11,15 +11,21 @@ pub const CMD_LEN: usize = 16;
 pub enum EventKind {
     Exec = 1,
     Mmap = 2,
-    Open = 3,
-    Connect = 4,
-    Bind = 5,
-    Close = 6,
-    UdpSend = 7,
-    UdpRecv = 8,
-    Mprotect = 9,
-    SecurityDeny = 10,
-    SecurityAllow = 11,
+    MmapAnon = 3, // Anonymous memory mapping (code injection detection)
+    Open = 4,
+    Connect = 5,
+    Bind = 6,
+    Close = 7,
+    TcpSend = 8, // TCP send data (C2 detection)
+    TcpRecv = 9, // TCP receive data
+    UdpSend = 10,
+    UdpRecv = 11,
+    Mprotect = 12, // Memory protection changes
+    SecurityDeny = 13,
+    SecurityAllow = 14,
+    DnsQuery = 15, // DNS lookups
+    SslWrite = 16, // TLS/SSL write operations
+    SslRead = 17,  // TLS/SSL read operations
 }
 
 /// Process execution event
@@ -68,6 +74,7 @@ pub struct NetEvent {
     pub family: u16,
     pub protocol: u8,
     pub kind: EventKind,
+    pub data_size: u32, // NEW: Size of data transferred (for TcpSend/TcpRecv)
 }
 
 /// Security event (alerts)

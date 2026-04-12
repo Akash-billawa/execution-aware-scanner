@@ -319,6 +319,7 @@ mod tests {
                 runtime: RuntimeDisposition::Reachable,
                 package: "log4j-core".to_string(),
                 observed_paths: std::collections::BTreeSet::new(),
+                signal_weight: 2.0, // Library loaded
             },
             score: cvss,
             priority,

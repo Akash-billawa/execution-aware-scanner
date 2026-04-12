@@ -404,6 +404,7 @@ fn create_finding(cve: &str, priority: Priority, score: f32) -> Finding {
             runtime: scanner_common::RuntimeDisposition::Reachable,
             package: "test".to_string(),
             observed_paths: std::collections::BTreeSet::new(),
+            signal_weight: 0.0,
         },
         score,
         priority,

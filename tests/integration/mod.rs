@@ -62,15 +62,16 @@ async fn test_end_to_end_scanning() {
 fn test_risk_calculation() {
     use scanner_common::{Priority, RiskSignal, RuntimeDisposition, RuntimeIdentity};
     
-    let signal = RiskSignal {
-        cve: "CVE-2021-44228".to_string(),
-        cvss: 10.0,
-        epss: 0.95,
-        kev: true,
-        runtime: RuntimeDisposition::Reachable,
-        package: "log4j".to_string(),
-        observed_paths: BTreeSet::from(["/app/lib/log4j.jar".to_string()]),
-    };
+  let signal = RiskSignal {
+    cve: "CVE-2021-44228".to_string(),
+    cvss: 10.0,
+    epss: 0.95,
+    kev: true,
+    runtime: RuntimeDisposition::Reachable,
+    package: "log4j".to_string(),
+    observed_paths: BTreeSet::from(["/app/lib/log4j.jar".to_string()]),
+    signal_weight: 2.0,
+  };
     
     // Critical finding: CVSS 10, EPSS 0.95, KEV, Reachable
     assert!(signal.cvss >= 9.0);

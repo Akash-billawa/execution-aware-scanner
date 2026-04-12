@@ -115,6 +115,7 @@ pub struct RiskSignal {
     pub runtime: RuntimeDisposition,
     pub package: String,
     pub observed_paths: BTreeSet<String>,
+    pub signal_weight: f32, // NEW: Runtime signal weight
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]

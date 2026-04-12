@@ -154,10 +154,11 @@ unsafe fn try_file_event(ctx: &TracePointContext, kind: EventKind) -> Result<u32
     };
     let _ = ctx.read_at(offset, &mut event.path);
 
-    // Track library loading for vulnerability correlation
-    if kind == EventKind::Mmap && is_shared_library(&event.path) {
-        track_library_load(pid_tgid as u32, &event.path)?;
-    }
+  // Track library loading for vulnerability correlation
+  if kind == EventKind::Mmap && is_shared_library(&event.path) {
+    track_library_load(pid_tgid as u32, &event.path)?;
+    log_security_event(cgroup_id, SecurityEventType::LibraryLoad);
+  }
 
     // File integrity monitoring
     if should_monitor_file(&event.path) {
@@ -182,50 +183,68 @@ unsafe fn try_file_event(ctx: &TracePointContext, kind: EventKind) -> Result<u32
 
 #[kprobe(name = "tcp_v4_connect")]
 pub fn trace_tcp_connect(ctx: KProbeContext) -> u32 {
-    match unsafe { try_tcp_connect(&ctx) } {
-        Ok(ret) => ret,
-        Err(_) => 0,
-    }
+  match unsafe { try_tcp_connect(&ctx) } {
+    Ok(ret) => ret,
+    Err(_) => 0,
+  }
 }
 
 #[kprobe(name = "tcp_v6_connect")]
 pub fn trace_tcp_connect_v6(ctx: KProbeContext) -> u32 {
-    match unsafe { try_tcp_connect_v6(&ctx) } {
-        Ok(ret) => ret,
-        Err(_) => 0,
-    }
+  match unsafe { try_tcp_connect_v6(&ctx) } {
+    Ok(ret) => ret,
+    Err(_) => 0,
+  }
 }
 
 #[kprobe(name = "tcp_close")]
 pub fn trace_tcp_close(ctx: KProbeContext) -> u32 {
-    match unsafe { try_tcp_close(&ctx) } {
-        Ok(ret) => ret,
-        Err(_) => 0,
-    }
+  match unsafe { try_tcp_close(&ctx) } {
+    Ok(ret) => ret,
+    Err(_) => 0,
+  }
 }
 
 #[kprobe(name = "inet_bind")]
 pub fn trace_bind(ctx: KProbeContext) -> u32 {
-    match unsafe { try_bind(&ctx) } {
-        Ok(ret) => ret,
-        Err(_) => 0,
-    }
+  match unsafe { try_bind(&ctx) } {
+    Ok(ret) => ret,
+    Err(_) => 0,
+  }
 }
 
 #[kprobe(name = "udp_sendmsg")]
 pub fn trace_udp_send(ctx: KProbeContext) -> u32 {
-    match unsafe { try_udp(&ctx, EventKind::UdpSend) } {
-        Ok(ret) => ret,
-        Err(_) => 0,
-    }
+  match unsafe { try_udp(&ctx, EventKind::UdpSend) } {
+    Ok(ret) => ret,
+    Err(_) => 0,
+  }
 }
 
 #[kprobe(name = "udp_recvmsg")]
 pub fn trace_udp_recv(ctx: KProbeContext) -> u32 {
-    match unsafe { try_udp(&ctx, EventKind::UdpRecv) } {
-        Ok(ret) => ret,
-        Err(_) => 0,
-    }
+  match unsafe { try_udp(&ctx, EventKind::UdpRecv) } {
+    Ok(ret) => ret,
+    Err(_) => 0,
+  }
+}
+
+// NEW: tcp_sendmsg for data exfiltration detection
+#[kprobe(name = "tcp_sendmsg")]
+pub fn trace_tcp_sendmsg(ctx: KProbeContext) -> u32 {
+  match unsafe { try_tcp_sendmsg(&ctx) } {
+    Ok(ret) => ret,
+    Err(_) => 0,
+  }
+}
+
+// NEW: tcp_recvmsg for C2 detection
+#[kprobe(name = "tcp_recvmsg")]
+pub fn trace_tcp_recvmsg(ctx: KProbeContext) -> u32 {
+  match unsafe { try_tcp_recvmsg(&ctx) } {
+    Ok(ret) => ret,
+    Err(_) => 0,
+  }
 }
 
 unsafe fn try_tcp_connect(ctx: &KProbeContext) -> Result<u32, i64> {
@@ -264,6 +283,7 @@ unsafe fn try_tcp_connect(ctx: &KProbeContext) -> Result<u32, i64> {
         family: sk_common.skc_family,
         protocol: 6, // TCP
         kind: EventKind::Connect,
+    data_size: 0,
     };
 
     // Track connection
@@ -311,19 +331,20 @@ unsafe fn try_bind(ctx: &KProbeContext) -> Result<u32, i64> {
     let sock: *const sock = ctx.arg(0).ok_or(1i64)?;
     let sk_common = &(*sock).__sk_common;
 
-    let event = NetEvent {
-        timestamp_ns: bpf_ktime_get_ns(),
-        pid: pid_tgid as u32,
-        tgid: (pid_tgid >> 32) as u32,
-        cgroup_id,
-        saddr: sk_common.skc_rcv_saddr,
-        daddr: 0,
-        sport: sk_common.skc_num,
-        dport: 0,
-        family: sk_common.skc_family,
-        protocol: 6,
-        kind: EventKind::Bind,
-    };
+  let event = NetEvent {
+    timestamp_ns: bpf_ktime_get_ns(),
+    pid: pid_tgid as u32,
+    tgid: (pid_tgid >> 32) as u32,
+    cgroup_id,
+    saddr: sk_common.skc_rcv_saddr,
+    daddr: 0,
+    sport: sk_common.skc_num,
+    dport: 0,
+    family: sk_common.skc_family,
+    protocol: 6,
+    kind: EventKind::Bind,
+    data_size: 0,
+  };
 
     if let Some(mut slot) = NET_EVENTS.reserve::<NetEvent>(0) {
         slot.write(event);
@@ -334,29 +355,120 @@ unsafe fn try_bind(ctx: &KProbeContext) -> Result<u32, i64> {
 }
 
 unsafe fn try_udp(ctx: &KProbeContext, kind: EventKind) -> Result<u32, i64> {
-    let pid_tgid = bpf_get_current_pid_tgid();
-    let cgroup_id = bpf_get_current_cgroup_id();
+  let pid_tgid = bpf_get_current_pid_tgid();
+  let cgroup_id = bpf_get_current_cgroup_id();
 
-    let event = NetEvent {
-        timestamp_ns: bpf_ktime_get_ns(),
-        pid: pid_tgid as u32,
-        tgid: (pid_tgid >> 32) as u32,
-        cgroup_id,
-        saddr: 0,
-        daddr: 0,
-        sport: 0,
-        dport: 0,
-        family: 2,
-        protocol: 17, // UDP
-        kind,
-    };
+  let event = NetEvent {
+    timestamp_ns: bpf_ktime_get_ns(),
+    pid: pid_tgid as u32,
+    tgid: (pid_tgid >> 32) as u32,
+    cgroup_id,
+    saddr: 0,
+    daddr: 0,
+    sport: 0,
+    dport: 0,
+    family: 2,
+    protocol: 17, // UDP
+    kind,
+    data_size: 0,
+  };
 
-    if let Some(mut slot) = NET_EVENTS.reserve::<NetEvent>(0) {
-        slot.write(event);
-        slot.submit(0);
-    }
+  if let Some(mut slot) = NET_EVENTS.reserve::<NetEvent>(0) {
+    slot.write(event);
+    slot.submit(0);
+  }
 
-    Ok(0)
+  Ok(0)
+}
+
+// NEW: tcp_sendmsg handler for data exfiltration detection
+unsafe fn try_tcp_sendmsg(ctx: &KProbeContext) -> Result<u32, i64> {
+  let pid_tgid = bpf_get_current_pid_tgid();
+  let cgroup_id = bpf_get_current_cgroup_id();
+
+  if ALLOWLIST.get(&cgroup_id).is_some() {
+    return Ok(0);
+  }
+
+  let sock: *const sock = ctx.arg(0).ok_or(1i64)?;
+  let sk_common = &(*sock).__sk_common;
+  let size: usize = ctx.arg(2).ok_or(1i64)?;
+
+  // Look up existing connection
+  let conn_key = ((sk_common.skc_rcv_saddr as u64) << 32) | (sk_common.skc_num as u64);
+
+  // Emit TCP send event
+  let event = NetEvent {
+    timestamp_ns: bpf_ktime_get_ns(),
+    pid: pid_tgid as u32,
+    tgid: (pid_tgid >> 32) as u32,
+    cgroup_id,
+    saddr: sk_common.skc_rcv_saddr,
+    daddr: sk_common.skc_daddr,
+    sport: sk_common.skc_num,
+    dport: u16::from_be(sk_common.skc_dport),
+    family: sk_common.skc_family,
+    protocol: 6, // TCP
+    kind: EventKind::TcpSend,
+    data_size: size as u32,
+  };
+
+  if let Some(mut slot) = NET_EVENTS.reserve::<NetEvent>(0) {
+    slot.write(event);
+    slot.submit(0);
+  }
+
+  // Track data transfer for behavioral analysis
+  if size > 1024 {
+    // Large data transfer - potential exfiltration
+    log_security_event(cgroup_id, SecurityEventType::LargeDataTransfer);
+  }
+
+  update_cgroup_stats(cgroup_id, SyscallType::Network);
+  Ok(0)
+}
+
+// NEW: tcp_recvmsg handler for C2 detection
+unsafe fn try_tcp_recvmsg(ctx: &KProbeContext) -> Result<u32, i64> {
+  let pid_tgid = bpf_get_current_pid_tgid();
+  let cgroup_id = bpf_get_current_cgroup_id();
+
+  if ALLOWLIST.get(&cgroup_id).is_some() {
+    return Ok(0);
+  }
+
+  let sock: *const sock = ctx.arg(0).ok_or(1i64)?;
+  let sk_common = &(*sock).__sk_common;
+
+  // Check against threat intelligence IPs
+  if THREAT_INTEL_IPS.get(&sk_common.skc_daddr).is_some() {
+    warn!("Data received from malicious IP");
+    log_security_event(cgroup_id, SecurityEventType::MaliciousConnection);
+  }
+
+  // Emit TCP receive event
+  let event = NetEvent {
+    timestamp_ns: bpf_ktime_get_ns(),
+    pid: pid_tgid as u32,
+    tgid: (pid_tgid >> 32) as u32,
+    cgroup_id,
+    saddr: sk_common.skc_rcv_saddr,
+    daddr: sk_common.skc_daddr,
+    sport: sk_common.skc_num,
+    dport: u16::from_be(sk_common.skc_dport),
+    family: sk_common.skc_family,
+    protocol: 6, // TCP
+    kind: EventKind::TcpRecv,
+    data_size: 0, // Could be passed as argument in future
+  };
+
+  if let Some(mut slot) = NET_EVENTS.reserve::<NetEvent>(0) {
+    slot.write(event);
+    slot.submit(0);
+  }
+
+  update_cgroup_stats(cgroup_id, SyscallType::Network);
+  Ok(0)
 }
 
 // ───────────────────────────────────────────────────────────────────────────
@@ -648,10 +760,12 @@ enum SyscallType {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum SecurityEventType {
-    SuspiciousExec = 1,
-    MaliciousConnection = 2,
-    FileTampering = 3,
-    PolicyViolation = 4,
+  SuspiciousExec = 1,
+  MaliciousConnection = 2,
+  FileTampering = 3,
+  PolicyViolation = 4,
+  LargeDataTransfer = 5,
+  LibraryLoad = 6,
 }
 
 // Constants

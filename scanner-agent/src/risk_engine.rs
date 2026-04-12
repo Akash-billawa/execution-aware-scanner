@@ -47,37 +47,44 @@ impl ExfRiskEngine {
         }
     }
 
-    /// Calculate EXF score using weighted components
-    ///
-    /// Formula: EXF = (CVSS × 0.45) + (EPSS × 10 × 0.25) + (KEV_Bonus × 0.15) + (Runtime × 0.15)
-    ///
-    /// Weights reflect:
-    /// - CVSS (45%): Base vulnerability severity
-    /// - EPSS (25%): Probability of exploitation in wild
-    /// - KEV (15%): Known Exploited Vulnerability (CISA)
-    /// - Runtime (15%): Active exposure in environment
-    pub fn calculate_exf_score(&self, signal: &RiskSignal) -> f32 {
-        // Normalize CVSS (already 0-10)
-        let cvss_component = signal.cvss * 0.45;
+  /// Calculate EXF score using weighted components
+  ///
+  /// Formula: EXF = (CVSS × 0.45) + (EPSS × 10 × 0.25) + (KEV_Bonus × 0.15) + (Runtime × 0.15)
+  /// Enhanced with signal weighting for precise risk calculation
+  pub fn calculate_exf_score(&self, signal: &RiskSignal) -> f32 {
+    // Normalize CVSS (already 0-10)
+    let cvss_component = signal.cvss * 0.45;
 
-        // EPSS is 0-1, scale to 0-10
-        let epss_component = signal.epss * 10.0 * 0.25;
+    // EPSS is 0-1, scale to 0-10
+    let epss_component = signal.epss * 10.0 * 0.25;
 
-        // KEV bonus: +1.5 points if known exploited
-        let kev_component = if signal.kev { 1.5 } else { 0.0 };
+    // KEV bonus: +1.5 points if known exploited
+    let kev_component = if signal.kev { 1.5 } else { 0.0 };
 
-        // Runtime component: active exposure increases risk
-        let runtime_component = match signal.runtime {
-            RuntimeDisposition::Reachable => 1.5,
-            RuntimeDisposition::Dormant => 0.5,
-            RuntimeDisposition::Unknown => 0.75,
-        };
+    // Runtime component: active exposure increases risk
+    let runtime_component = match signal.runtime {
+      RuntimeDisposition::Reachable => 1.5,
+      RuntimeDisposition::Dormant => 0.5,
+      RuntimeDisposition::Unknown => 0.75,
+    };
 
-        let score = cvss_component + epss_component + kev_component + runtime_component;
+    // Signal weighting: boost score based on runtime signals
+    // Signal weight ranges from 0.0 to ~10.0 based on collected signals
+    let signal_boost = if signal.signal_weight > 0.0 {
+      signal.signal_weight.min(3.0) // Cap at +3.0 points
+    } else {
+      0.0
+    };
 
-        // Clamp to 0-10 range
-        score.min(10.0).max(0.0)
-    }
+    let score = cvss_component
+      + epss_component
+      + kev_component
+      + runtime_component
+      + signal_boost;
+
+    // Clamp to 0-10 range
+    score.min(10.0).max(0.0)
+  }
 
     /// Evaluate a signal and produce a finding if it meets thresholds
     pub fn evaluate(&self, identity: RuntimeIdentity, signal: RiskSignal) -> Option<Finding> {
@@ -383,16 +390,17 @@ mod tests {
     fn test_exf_score_calculation() {
         let engine = ExfRiskEngine::new(create_test_config());
 
-        // Critical: CVSS 9.8, EPSS 0.91, KEV, Reachable
-        let signal = RiskSignal {
-            cve: "CVE-2025-1234".to_string(),
-            cvss: 9.8,
-            epss: 0.91,
-            kev: true,
-            runtime: RuntimeDisposition::Reachable,
-            package: "openssl".to_string(),
-            observed_paths: BTreeSet::from(["/usr/lib/libssl.so".to_string()]),
-        };
+  // Critical: CVSS 9.8, EPSS 0.91, KEV, Reachable
+  let signal = RiskSignal {
+    cve: "CVE-2025-1234".to_string(),
+    cvss: 9.8,
+    epss: 0.91,
+    kev: true,
+    runtime: RuntimeDisposition::Reachable,
+    package: "openssl".to_string(),
+    observed_paths: BTreeSet::from(["/usr/lib/libssl.so".to_string()]),
+    signal_weight: 2.0, // Library loaded
+  };
 
         let score = engine.calculate_exf_score(&signal);
         assert!(
@@ -401,16 +409,17 @@ mod tests {
             score
         );
 
-        // High: CVSS 8.0, EPSS 0.5, Not KEV, Reachable
-        let signal2 = RiskSignal {
-            cve: "CVE-2025-5678".to_string(),
-            cvss: 8.0,
-            epss: 0.5,
-            kev: false,
-            runtime: RuntimeDisposition::Reachable,
-            package: "nginx".to_string(),
-            observed_paths: BTreeSet::new(),
-        };
+  // High: CVSS 8.0, EPSS 0.5, Not KEV, Reachable
+  let signal2 = RiskSignal {
+    cve: "CVE-2025-5678".to_string(),
+    cvss: 8.0,
+    epss: 0.5,
+    kev: false,
+    runtime: RuntimeDisposition::Reachable,
+    package: "nginx".to_string(),
+    observed_paths: BTreeSet::new(),
+    signal_weight: 0.0,
+  };
 
         let score2 = engine.calculate_exf_score(&signal2);
         assert!(
@@ -424,16 +433,17 @@ mod tests {
     fn test_dormant_not_prioritized() {
         let engine = ExfRiskEngine::new(create_test_config());
 
-        // Dormant with no KEV - should not produce finding
-        let signal = RiskSignal {
-            cve: "CVE-2025-9999".to_string(),
-            cvss: 9.8,
-            epss: 0.95,
-            kev: false,
-            runtime: RuntimeDisposition::Dormant,
-            package: "openssl".to_string(),
-            observed_paths: BTreeSet::new(),
-        };
+  // Dormant with no KEV - should not produce finding
+  let signal = RiskSignal {
+    cve: "CVE-2025-9999".to_string(),
+    cvss: 9.8,
+    epss: 0.95,
+    kev: false,
+    runtime: RuntimeDisposition::Dormant,
+    package: "openssl".to_string(),
+    observed_paths: BTreeSet::new(),
+    signal_weight: 0.0,
+  };
 
         let identity = RuntimeIdentity {
             node_name: "test".to_string(),
@@ -453,16 +463,17 @@ mod tests {
     fn test_kev_prioritizes_dormant() {
         let engine = ExfRiskEngine::new(create_test_config());
 
-        // Dormant but KEV - should produce finding
-        let signal = RiskSignal {
-            cve: "CVE-2025-8888".to_string(),
-            cvss: 7.5,
-            epss: 0.3,
-            kev: true,
-            runtime: RuntimeDisposition::Dormant,
-            package: "log4j".to_string(),
-            observed_paths: BTreeSet::new(),
-        };
+  // Dormant but KEV - should produce finding
+  let signal = RiskSignal {
+    cve: "CVE-2025-8888".to_string(),
+    cvss: 7.5,
+    epss: 0.3,
+    kev: true,
+    runtime: RuntimeDisposition::Dormant,
+    package: "log4j".to_string(),
+    observed_paths: BTreeSet::new(),
+    signal_weight: 0.0,
+  };
 
         let identity = RuntimeIdentity {
             node_name: "test".to_string(),
