@@ -8,9 +8,9 @@ license.workspace = true
 path = "src/lib.rs"
 
 [dependencies]
-# Pin to older version to avoid API breaking changes in 0.1.x
-aya-ebpf = "=0.1.0"
-aya-log-ebpf = "=0.1.0"
+# Using exact versions from Cargo.lock to maintain compatibility
+aya-ebpf = "=0.1.1"
+aya-log-ebpf = "=0.1.1"
 
 [profile.dev]
 panic = "abort"
