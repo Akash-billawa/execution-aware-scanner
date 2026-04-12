@@ -247,11 +247,12 @@ impl ExecutionProofCollector {
             .or_default()
             .push(evidence);
 
+        let confidence_str = format!("{:?}", confidence);
         tracing::info!(
             "Execution evidence for {}: {} ({} confidence)",
             cve_id,
             process_name,
-            format!("{:?}", confidence)
+            confidence_str
         );
     }
 
