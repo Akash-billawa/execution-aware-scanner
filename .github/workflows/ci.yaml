@@ -17,38 +17,44 @@ jobs:
     name: Build and Test (Linux)
     runs-on: ubuntu-latest
     steps:
-    - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-    - name: Install protobuf compiler
-      run: sudo apt-get update && sudo apt-get install -y protobuf-compiler
+      - name: Install protobuf compiler
+        run: sudo apt-get update && sudo apt-get install -y protobuf-compiler
 
-    - name: Install Rust
-      uses: dtolnay/rust-toolchain@stable
+      - name: Install Rust stable
+        uses: dtolnay/rust-toolchain@stable
 
-    - name: Cache cargo
-      uses: Swatinem/rust-cache@v2
-      with:
-        key: linux-${{ hashFiles('**/Cargo.lock') }}
+      - name: Install Rust nightly (for eBPF)
+        run: rustup toolchain install nightly
 
-    - name: Build scanner-common
-      run: cargo build -p scanner-common --release
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@v2
+        with:
+          key: linux-${{ hashFiles('**/Cargo.lock') }}
 
-    - name: Build scanner-agent (Linux safe)
-      run: cargo build -p scanner-agent --release --no-default-features
-      env:
-        SKIP_PROTO: 1
+      - name: Build scanner-common
+        run: cargo build -p scanner-common --release
 
-    - name: Run tests
-      run: cargo test -p scanner-common --release
-      env:
-        RUST_LOG: debug
+      - name: Build scanner-agent (Linux safe)
+        run: cargo build -p scanner-agent --release --no-default-features
+        env:
+          SKIP_PROTO: 1
 
-    - name: Upload artifacts
-      uses: actions/upload-artifact@v4
-      with:
-        name: linux-build
-        path: target/release/scanner-agent
-        retention-days: 7
+      - name: Build scanner-ebpf (nightly)
+        run: cargo +nightly build -p scanner-ebpf --release --target bpfel-unknown-none -Z build-std=core
+
+      - name: Run tests
+        run: cargo test -p scanner-common --release
+        env:
+          RUST_LOG: debug
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: linux-build
+          path: target/release/scanner-agent
+          retention-days: 7
 
   # Build on Windows/Mac (without eBPF)
   build-cross-platform:
