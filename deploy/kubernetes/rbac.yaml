@@ -1,0 +1,53 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: execution-aware-scanner
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: scanner-agent
+  namespace: execution-aware-scanner
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: scanner-agent
+rules:
+  # Pod information for container identification
+  - apiGroups: [""]
+    resources: ["pods", "nodes", "namespaces", "services", "endpoints"]
+    verbs: ["get", "list", "watch"]
+  # Container runtime info
+  - apiGroups: [""]
+    resources: ["pods/status", "nodes/status"]
+    verbs: ["get"]
+  # ConfigMaps for policies
+  - apiGroups: [""]
+    resources: ["configmaps"]
+    verbs: ["get", "list", "watch"]
+  # For seccomp profile management
+  - apiGroups: ["policy"]
+    resources: ["podsecuritypolicies"]
+    verbs: ["get", "list", "watch", "create", "update", "delete"]
+  # Network policies for enforcement
+  - apiGroups: ["networking.k8s.io"]
+    resources: ["networkpolicies"]
+    verbs: ["get", "list", "watch", "create", "update", "delete"]
+  # Events for logging
+  - apiGroups: [""]
+    resources: ["events"]
+    verbs: ["create", "patch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: scanner-agent
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: scanner-agent
+subjects:
+  - kind: ServiceAccount
+    name: scanner-agent
+    namespace: execution-aware-scanner
