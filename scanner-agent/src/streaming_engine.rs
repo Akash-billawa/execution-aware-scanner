@@ -60,7 +60,11 @@ impl Default for StreamingConfig {
 #[derive(Debug, Clone)]
 pub enum StreamEvent {
     /// New eBPF event from kernel
-    BpfEvent { timestamp_ns: u64, kind: String, details: String },
+    BpfEvent {
+        timestamp_ns: u64,
+        kind: String,
+        details: String,
+    },
     /// Attack graph update
     GraphUpdate(GraphUpdate),
     /// New path detected
@@ -178,7 +182,8 @@ impl StreamingState {
             self.last_alert.insert(path_id.to_string(), Instant::now());
         }
 
-        self.path_confidence.insert(path_id.to_string(), new_confidence);
+        self.path_confidence
+            .insert(path_id.to_string(), new_confidence);
         should_alert
     }
 
@@ -299,10 +304,17 @@ impl StreamingEngine {
                 self.handle_confidence_change(&path_id, old, new, &mut state)
                     .await;
             }
-            StreamEvent::RiskEscalated { path_id, risk_delta } => {
+            StreamEvent::RiskEscalated {
+                path_id,
+                risk_delta,
+            } => {
                 self.handle_risk_escalation(&path_id, risk_delta).await;
             }
-            StreamEvent::BpfEvent { timestamp_ns, kind, details } => {
+            StreamEvent::BpfEvent {
+                timestamp_ns,
+                kind,
+                details,
+            } => {
                 debug!(
                     timestamp = timestamp_ns,
                     kind = kind,
@@ -329,7 +341,11 @@ impl StreamingEngine {
                     }
                 }
             }
-            GraphUpdate::EdgeUpdated { from, to, delta_bytes } => {
+            GraphUpdate::EdgeUpdated {
+                from,
+                to,
+                delta_bytes,
+            } => {
                 debug!(
                     from = from,
                     to = to,
@@ -342,12 +358,7 @@ impl StreamingEngine {
                 }
             }
             GraphUpdate::ConfidenceChanged { cve_id, old, new } => {
-                debug!(
-                    cve = cve_id,
-                    old = old,
-                    new = new,
-                    "Confidence updated"
-                );
+                debug!(cve = cve_id, old = old, new = new, "Confidence updated");
             }
             GraphUpdate::NewPath { path } => {
                 debug!(
@@ -360,26 +371,20 @@ impl StreamingEngine {
     }
 
     /// Handle new path detected
-    async fn handle_path_detected(
-        &self,
-        path: AttackPath,
-        state: &mut StreamingState,
-    ) {
+    async fn handle_path_detected(&self, path: AttackPath, state: &mut StreamingState) {
         let path_summary = path.to_summary();
-        let node_names: Vec<String> = path
-            .nodes
-            .iter()
-            .map(|n| n.node_id())
-            .collect();
+        let node_names: Vec<String> = path.nodes.iter().map(|n| n.node_id()).collect();
 
         // Build trigger string
-        let trigger = path
-            .signal_types
-            .join(" + ");
+        let trigger = path.signal_types.join(" + ");
 
         // Update state
-        state.path_confidence.insert(path.path_id.clone(), path.confidence);
-        state.path_risk.insert(path.path_id.clone(), path.risk_score);
+        state
+            .path_confidence
+            .insert(path.path_id.clone(), path.confidence);
+        state
+            .path_risk
+            .insert(path.path_id.clone(), path.risk_score);
 
         // Emit PathDetected
         if self.config.stream_json {
@@ -461,10 +466,7 @@ impl StreamingEngine {
 
             // Live confidence update
             if delta.abs() > 0.1 {
-                println!(
-                    "[UPDATE] Path confidence {:.2} → {:.2}",
-                    old, new
-                );
+                println!("[UPDATE] Path confidence {:.2} → {:.2}", old, new);
             }
         }
 
@@ -479,10 +481,7 @@ impl StreamingEngine {
             let output = StreamingOutput::Alert {
                 severity,
                 path_id: path_id.to_string(),
-                message: format!(
-                    "CONFIDENCE THRESHOLD CROSSED: {:.2} → {:.2}",
-                    old, new
-                ),
+                message: format!("CONFIDENCE THRESHOLD CROSSED: {:.2} → {:.2}", old, new),
                 confidence: new,
                 timestamp: Utc::now().timestamp(),
                 indicators: vec!["confidence_threshold_crossed".to_string()],
@@ -543,7 +542,10 @@ impl StreamingEngine {
     }
 
     /// Export graph to JSON for visualization
-    pub async fn export_graph(&self, output_path: &str) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    pub async fn export_graph(
+        &self,
+        output_path: &str,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         let graph = self.attack_graph.read().await;
         let snapshot = GraphSnapshot::from_graph(&graph);
 
@@ -656,11 +658,8 @@ pub async fn run_streaming_mode_with_webhooks(
     config: StreamingConfig,
     webhook_manager: Arc<crate::webhook_sender::WebhookManager>,
 ) {
-    let (engine, event_rx) = StreamingEngine::with_webhooks(
-        attack_graph,
-        config.clone(),
-        webhook_manager,
-    );
+    let (engine, event_rx) =
+        StreamingEngine::with_webhooks(attack_graph, config.clone(), webhook_manager);
 
     // Spawn graph export task if enabled
     if config.export_graph {

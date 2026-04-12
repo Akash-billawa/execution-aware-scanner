@@ -278,24 +278,18 @@ impl GraphExporter {
                             let name = path.split('/').last().unwrap_or(path);
                             ("library", name.to_string(), "#2ecc71", "library")
                         }
-                        RuntimeNode::Network { ip, port, .. } => (
-                            "network",
-                            format!("{}:{}", ip, port),
-                            "#f39c12",
-                            "globe",
-                        ),
+                        RuntimeNode::Network { ip, port, .. } => {
+                            ("network", format!("{}:{}", ip, port), "#f39c12", "globe")
+                        }
                         RuntimeNode::Vulnerability(v) => (
                             "vulnerability",
                             format!("{} (CVSS {:.1})", v.cve_id, v.cvss),
                             "#e74c3c",
                             "alert",
                         ),
-                        RuntimeNode::Technique { name, .. } => (
-                            "technique",
-                            name.clone(),
-                            "#9b59b6",
-                            "gear",
-                        ),
+                        RuntimeNode::Technique { name, .. } => {
+                            ("technique", name.clone(), "#9b59b6", "gear")
+                        }
                     };
 
                     nodes.push(ExportNode {
@@ -324,26 +318,27 @@ impl GraphExporter {
                     if !edge_pairs.contains(&edge_key) {
                         edge_pairs.insert(edge_key);
 
-                    let (edge_type, label, width, color): (&str, String, f32, &str) = match edge {
-                        RuntimeEdge::LibraryLoaded { .. } => {
-                            ("mmap", "loaded".to_string(), 1.0, "#95a5a6")
-                        }
-                        RuntimeEdge::Vulnerable { confidence } => {
-                            ("vulnerable", "vulnerable".to_string(), *confidence, "#e74c3c")
-                        }
-                        RuntimeEdge::NetworkConnection { total_bytes, .. } => (
-                            "network",
-                            format!("{} bytes", total_bytes),
-                            1.5,
-                            "#3498db",
-                        ),
-                        RuntimeEdge::ExploitationAttempt { evidence, .. } => {
-                            ("exploitation", evidence.clone(), 2.0, "#e74c3c")
-                        }
-                        RuntimeEdge::UsesTechnique { .. } => {
-                            ("technique", "uses".to_string(), 1.0, "#9b59b6")
-                        }
-                    };
+                        let (edge_type, label, width, color): (&str, String, f32, &str) = match edge
+                        {
+                            RuntimeEdge::LibraryLoaded { .. } => {
+                                ("mmap", "loaded".to_string(), 1.0, "#95a5a6")
+                            }
+                            RuntimeEdge::Vulnerable { confidence } => (
+                                "vulnerable",
+                                "vulnerable".to_string(),
+                                *confidence,
+                                "#e74c3c",
+                            ),
+                            RuntimeEdge::NetworkConnection { total_bytes, .. } => {
+                                ("network", format!("{} bytes", total_bytes), 1.5, "#3498db")
+                            }
+                            RuntimeEdge::ExploitationAttempt { evidence, .. } => {
+                                ("exploitation", evidence.clone(), 2.0, "#e74c3c")
+                            }
+                            RuntimeEdge::UsesTechnique { .. } => {
+                                ("technique", "uses".to_string(), 1.0, "#9b59b6")
+                            }
+                        };
 
                         edges.push(ExportEdge {
                             from: from_id,
@@ -439,9 +434,7 @@ impl GraphExporter {
                 RuntimeNode::Vulnerability(v) => {
                     format!("{} (CVSS {:.1})", v.cve_id, v.cvss)
                 }
-                RuntimeNode::Technique { name, .. } => {
-                    name.clone()
-                }
+                RuntimeNode::Technique { name, .. } => name.clone(),
             };
 
             export_nodes.push(ExportNode {
@@ -582,8 +575,14 @@ mod tests {
 
     #[test]
     fn test_export_format_parsing() {
-        assert!(matches!("json".parse::<GraphFormat>().unwrap(), GraphFormat::Json));
-        assert!(matches!("dot".parse::<GraphFormat>().unwrap(), GraphFormat::Dot));
+        assert!(matches!(
+            "json".parse::<GraphFormat>().unwrap(),
+            GraphFormat::Json
+        ));
+        assert!(matches!(
+            "dot".parse::<GraphFormat>().unwrap(),
+            GraphFormat::Dot
+        ));
         assert!("invalid".parse::<GraphFormat>().is_err());
     }
 }

@@ -8,8 +8,8 @@ mod experiment;
 mod intel;
 mod k8s;
 mod metrics;
-mod remediator;
 mod reliability;
+mod remediator;
 mod risk_engine;
 mod runtime_attack_graph;
 mod runtime_attack_graph_v2;
@@ -296,7 +296,9 @@ async fn main() -> Result<(), ScannerError> {
     };
 
     // Initialize attack graph for streaming mode
-    let attack_graph = Arc::new(RwLock::new(runtime_attack_graph_v2::RuntimeAttackGraph::with_defaults()));
+    let attack_graph = Arc::new(RwLock::new(
+        runtime_attack_graph_v2::RuntimeAttackGraph::with_defaults(),
+    ));
 
     // Setup webhook manager if URL is provided
     let mut webhook_manager = webhook_sender::WebhookManager::new();
@@ -329,59 +331,66 @@ async fn main() -> Result<(), ScannerError> {
         };
 
         webhook_manager.add_webhook(webhook_config);
-        info!("Webhook configured: {} (type: {})", webhook_url, cli.webhook_type);
+        info!(
+            "Webhook configured: {} (type: {})",
+            webhook_url, cli.webhook_type
+        );
     }
 
     let webhook_manager = Arc::new(webhook_manager);
 
     // Run pipeline based on mode
-    let analysis_handle: tokio::task::JoinHandle<Result<Vec<Finding>, ScannerError>> = if cli.mode == ExecutionMode::Stream {
-        // Stream mode: real-time continuous updates
-        info!("Running in STREAM mode - real-time attack path detection");
+    let analysis_handle: tokio::task::JoinHandle<Result<Vec<Finding>, ScannerError>> =
+        if cli.mode == ExecutionMode::Stream {
+            // Stream mode: real-time continuous updates
+            info!("Running in STREAM mode - real-time attack path detection");
 
-        let streaming_config = streaming_engine::StreamingConfig {
-            output_interval_ms: parse_duration(&cli.stream_interval),
-            alert_threshold: 0.8,
-            risk_escalation_threshold: 0.7,
-            channel_buffer_size: 1000,
-            stream_json: cli.stream_json,
-            top_k: cli.top_k,
-            export_graph: cli.export_graph.is_some(),
-            graph_export_interval_secs: 60,
+            let streaming_config = streaming_engine::StreamingConfig {
+                output_interval_ms: parse_duration(&cli.stream_interval),
+                alert_threshold: 0.8,
+                risk_escalation_threshold: 0.7,
+                channel_buffer_size: 1000,
+                stream_json: cli.stream_json,
+                top_k: cli.top_k,
+                export_graph: cli.export_graph.is_some(),
+                graph_export_interval_secs: 60,
+            };
+
+            tokio::spawn(async move {
+                streaming_engine::run_streaming_mode_with_webhooks(
+                    attack_graph.clone(),
+                    streaming_config,
+                    webhook_manager.clone(),
+                )
+                .await;
+                // Streaming mode doesn't produce findings in the same way
+                Ok(Vec::new())
+            })
+        } else {
+            // Batch mode: traditional analysis
+            info!("Running in BATCH mode - periodic analysis");
+
+            let analysis_config = config.clone();
+            let safe_enforcer_for_pipeline =
+                SafeEnforcer::new(EnforcementMode::Audit, config.risk.clone());
+
+            tokio::spawn(async move {
+                run_analysis_pipeline(
+                    &analysis_config,
+                    sbom_store,
+                    intel,
+                    pod_cache,
+                    risk_engine,
+                    metrics,
+                    state_store,
+                    cgroup_resolver,
+                    remediator,
+                    vuln_detector,
+                    safe_enforcer_for_pipeline,
+                )
+                .await
+            })
         };
-
-        tokio::spawn(async move {
-            streaming_engine::run_streaming_mode_with_webhooks(
-                attack_graph.clone(),
-                streaming_config,
-                webhook_manager.clone(),
-            ).await;
-            // Streaming mode doesn't produce findings in the same way
-            Ok(Vec::new())
-        })
-    } else {
-        // Batch mode: traditional analysis
-        info!("Running in BATCH mode - periodic analysis");
-
-        let analysis_config = config.clone();
-        let safe_enforcer_for_pipeline = SafeEnforcer::new(EnforcementMode::Audit, config.risk.clone());
-
-        tokio::spawn(async move {
-            run_analysis_pipeline(
-                &analysis_config,
-                sbom_store,
-                intel,
-                pod_cache,
-                risk_engine,
-                metrics,
-                state_store,
-                cgroup_resolver,
-                remediator,
-                vuln_detector,
-                safe_enforcer_for_pipeline,
-            ).await
-        })
-    };
 
     // Wait for completion or signal
     tokio::signal::ctrl_c().await.ok();
@@ -509,265 +518,278 @@ async fn run_analysis_pipeline(
                     let intel_state = intel.state();
                     let intel_state = intel_state.read().await;
 
-      // 🆕 SCAN IMAGE FOR REAL VULNERABILITIES
-      match vuln_detector.scan_image(&identity.image).await {
-        Ok(vulns) => {
-          // Clone vulns for later use in attack graph
-          let vulns_for_attack_graph = vulns.clone();
-          
-          info!(
-            "Found {} vulnerabilities in {}",
-            vulns.len(),
-            identity.image
-          );
-            for vuln in vulns {
-              // Calculate runtime disposition based on signals
-              let runtime = if workload.signal_weight() > 0.0 {
-                scanner_common::RuntimeDisposition::Reachable
-              } else {
-                scanner_common::RuntimeDisposition::Dormant
-              };
+                    // 🆕 SCAN IMAGE FOR REAL VULNERABILITIES
+                    match vuln_detector.scan_image(&identity.image).await {
+                        Ok(vulns) => {
+                            // Clone vulns for later use in attack graph
+                            let vulns_for_attack_graph = vulns.clone();
 
-              // Convert to risk signal with signal weighting
-              let signal = scanner_common::RiskSignal {
-                cve: vuln.cve.clone(),
-                cvss: vuln.cvss_score,
-                epss: *intel_state.epss.get(&vuln.cve).unwrap_or(&0.0),
-                kev: intel_state.kev.contains(&vuln.cve),
-                runtime,
-                package: vuln.package.clone(),
-                observed_paths: workload.observed_paths.clone(),
-                signal_weight: workload.signal_weight(),
-              };
+                            info!(
+                                "Found {} vulnerabilities in {}",
+                                vulns.len(),
+                                identity.image
+                            );
+                            for vuln in vulns {
+                                // Calculate runtime disposition based on signals
+                                let runtime = if workload.signal_weight() > 0.0 {
+                                    scanner_common::RuntimeDisposition::Reachable
+                                } else {
+                                    scanner_common::RuntimeDisposition::Dormant
+                                };
 
-              // Get runtime signals for explainability
-              let runtime_signals: Vec<scanner_common::SignalEvidence> = workload
-                .signals
-                .iter()
-                .map(|s| scanner_common::SignalEvidence {
-                  signal_type: format!("{:?}", s.signal_type),
-                  timestamp_ns: s.timestamp_ns,
-                  details: s.details.clone(),
-                  confidence: s.weight.min(1.0), // Weight as confidence
-                })
-                .collect();
+                                // Convert to risk signal with signal weighting
+                                let signal = scanner_common::RiskSignal {
+                                    cve: vuln.cve.clone(),
+                                    cvss: vuln.cvss_score,
+                                    epss: *intel_state.epss.get(&vuln.cve).unwrap_or(&0.0),
+                                    kev: intel_state.kev.contains(&vuln.cve),
+                                    runtime,
+                                    package: vuln.package.clone(),
+                                    observed_paths: workload.observed_paths.clone(),
+                                    signal_weight: workload.signal_weight(),
+                                };
 
-              if let Some(finding) =
-                risk_engine.evaluate(identity.clone(), signal, Some(&runtime_signals))
-              {
-                let priority = format!("{:?}", finding.priority);
-                metrics.inc_findings(&priority);
-                findings.push(finding.clone());
+                                // Get runtime signals for explainability
+                                let runtime_signals: Vec<scanner_common::SignalEvidence> = workload
+                                    .signals
+                                    .iter()
+                                    .map(|s| scanner_common::SignalEvidence {
+                                        signal_type: format!("{:?}", s.signal_type),
+                                        timestamp_ns: s.timestamp_ns,
+                                        details: s.details.clone(),
+                                        confidence: s.weight.min(1.0), // Weight as confidence
+                                    })
+                                    .collect();
 
-                // Output JSON finding for test validation
-                match serde_json::to_string(&finding) {
-                  Ok(json) => {
-                    println!("{}", json);
-                    info!(finding_json = %json, "finding_generated");
-                  }
-                  Err(e) => {
-                    warn!(error = %e, "failed to serialize finding");
-                  }
-                }
+                                if let Some(finding) = risk_engine.evaluate(
+                                    identity.clone(),
+                                    signal,
+                                    Some(&runtime_signals),
+                                ) {
+                                    let priority = format!("{:?}", finding.priority);
+                                    metrics.inc_findings(&priority);
+                                    findings.push(finding.clone());
 
-                // Trigger remediation for critical
-                if matches!(
-                  finding.priority,
-                  scanner_common::Priority::Critical
-                ) {
-                  if let Err(e) = remediator.remediate_finding(&finding).await
-                  {
-                    warn!("Remediation failed: {}", e);
-                }
-              }
-            }
+                                    // Output JSON finding for test validation
+                                    match serde_json::to_string(&finding) {
+                                        Ok(json) => {
+                                            println!("{}", json);
+                                            info!(finding_json = %json, "finding_generated");
+                                        }
+                                        Err(e) => {
+                                            warn!(error = %e, "failed to serialize finding");
+                                        }
+                                    }
 
-            // 🆕 BUILD ATTACK PATHS FROM RUNTIME SIGNALS
-            // Initialize attack graph v2 with enhanced config
-            let mut attack_graph = runtime_attack_graph_v2::RuntimeAttackGraph::with_defaults();
-            
-            // Configure for production
-            let mut config = runtime_attack_graph_v2::AttackGraphConfig::default();
-            config.top_k = 3; // Only report top 3 paths
-            config.min_enforcement_confidence = 0.8;
-            config.min_enforcement_depth = 3;
+                                    // Trigger remediation for critical
+                                    if matches!(
+                                        finding.priority,
+                                        scanner_common::Priority::Critical
+                                    ) {
+                                        if let Err(e) = remediator.remediate_finding(&finding).await
+                                        {
+                                            warn!("Remediation failed: {}", e);
+                                        }
+                                    }
+                                }
 
-            // Process library loads
-            for lib in &workload.loaded_libraries {
-                attack_graph.process_library_load(
-                    0, // Use actual PID from signals
-                    &identity.workload,
-                    *cgroup_id,
-                    lib,
-                    0,
-                );
+                                // 🆕 BUILD ATTACK PATHS FROM RUNTIME SIGNALS
+                                // Initialize attack graph v2 with enhanced config
+                                let mut attack_graph =
+                                    runtime_attack_graph_v2::RuntimeAttackGraph::with_defaults();
 
-                // Associate CVEs with loaded libraries
-                for vuln in &vulns_for_attack_graph {
-                    if lib.contains(&vuln.package) || vuln.package.contains(lib.split('/').last().unwrap_or("")) {
-                        attack_graph.associate_cve_with_library(
-                            &vuln.cve,
-                            &vuln.package,
-                            vuln.cvss_score,
-                            *intel_state.epss.get(&vuln.cve).unwrap_or(&0.0),
-                            intel_state.kev.contains(&vuln.cve),
-                        );
-                    }
-                }
-            }
+                                // Configure for production
+                                let mut config =
+                                    runtime_attack_graph_v2::AttackGraphConfig::default();
+                                config.top_k = 3; // Only report top 3 paths
+                                config.min_enforcement_confidence = 0.8;
+                                config.min_enforcement_depth = 3;
 
-            // Process network events from runtime signals
-            for signal in &workload.signals {
-                // Extract network info from signal details
-                if signal.details.contains("transfer") {
-                    // Parse network info from details
-                    let net_event = scanner_common::NetEvent {
-                        timestamp_ns: signal.timestamp_ns,
-                        pid: 0,
-                        tgid: 0,
-                        cgroup_id: *cgroup_id,
-                        saddr: 0,
-                        daddr: 0, // Parse from details
-                        sport: 0,
-                        dport: 443,
-                        family: 2,
-                        protocol: 6,
-                        kind: scanner_common::EventKind::TcpSend,
-                        data_size: 1024, // Parse from details
-                    };
+                                // Process library loads
+                                for lib in &workload.loaded_libraries {
+                                    attack_graph.process_library_load(
+                                        0, // Use actual PID from signals
+                                        &identity.workload,
+                                        *cgroup_id,
+                                        lib,
+                                        0,
+                                    );
 
-                    attack_graph.process_network_event(
-                        0,
-                        &identity.workload,
-                        *cgroup_id,
-                        &net_event,
-                    );
-                }
-            }
+                                    // Associate CVEs with loaded libraries
+                                    for vuln in &vulns_for_attack_graph {
+                                        if lib.contains(&vuln.package)
+                                            || vuln
+                                                .package
+                                                .contains(lib.split('/').last().unwrap_or(""))
+                                        {
+                                            attack_graph.associate_cve_with_library(
+                                                &vuln.cve,
+                                                &vuln.package,
+                                                vuln.cvss_score,
+                                                *intel_state.epss.get(&vuln.cve).unwrap_or(&0.0),
+                                                intel_state.kev.contains(&vuln.cve),
+                                            );
+                                        }
+                                    }
+                                }
 
-            // Get top-K paths and streaming updates
-            let path_summaries = attack_graph.get_top_k_paths(&findings);
-            let updates = attack_graph.drain_updates();
-            
-            // Log attack paths
-            if !path_summaries.is_empty() {
-                info!("Detected {} attack paths", path_summaries.len());
-                for path in &path_summaries {
-                    info!(
+                                // Process network events from runtime signals
+                                for signal in &workload.signals {
+                                    // Extract network info from signal details
+                                    if signal.details.contains("transfer") {
+                                        // Parse network info from details
+                                        let net_event = scanner_common::NetEvent {
+                                            timestamp_ns: signal.timestamp_ns,
+                                            pid: 0,
+                                            tgid: 0,
+                                            cgroup_id: *cgroup_id,
+                                            saddr: 0,
+                                            daddr: 0, // Parse from details
+                                            sport: 0,
+                                            dport: 443,
+                                            family: 2,
+                                            protocol: 6,
+                                            kind: scanner_common::EventKind::TcpSend,
+                                            data_size: 1024, // Parse from details
+                                        };
+
+                                        attack_graph.process_network_event(
+                                            0,
+                                            &identity.workload,
+                                            *cgroup_id,
+                                            &net_event,
+                                        );
+                                    }
+                                }
+
+                                // Get top-K paths and streaming updates
+                                let path_summaries = attack_graph.get_top_k_paths(&findings);
+                                let updates = attack_graph.drain_updates();
+
+                                // Log attack paths
+                                if !path_summaries.is_empty() {
+                                    info!("Detected {} attack paths", path_summaries.len());
+                                    for path in &path_summaries {
+                                        info!(
                         "Attack Path #{}: {} nodes, confidence: {:.2}, risk: {:.2}",
                         path.rank.unwrap_or(0),
                         path.node_count,
                         path.confidence,
                         path.risk_score
                     );
-                }
-            }
+                                    }
+                                }
 
-            // Attach attack paths to findings
-            runtime_attack_graph_v2::attach_attack_paths_to_findings(&mut findings, &mut attack_graph);
-          }
-          }
-        Err(e) => {
-          warn!("Vulnerability scan failed for {}: {}", identity.image, e);
-          // Fall back to SBOM-based detection
-        }
-      }
+                                // Attach attack paths to findings
+                                runtime_attack_graph_v2::attach_attack_paths_to_findings(
+                                    &mut findings,
+                                    &mut attack_graph,
+                                );
+                            }
+                        }
+                        Err(e) => {
+                            warn!("Vulnerability scan failed for {}: {}", identity.image, e);
+                            // Fall back to SBOM-based detection
+                        }
+                    }
 
-      // Original SBOM-based detection (fallback)
-      let components = sbom_store
-        .classify_runtime_paths(&identity.image, &workload.observed_paths);
+                    // Original SBOM-based detection (fallback)
+                    let components = sbom_store
+                        .classify_runtime_paths(&identity.image, &workload.observed_paths);
 
                     for (component, runtime) in components {
-            for cve in component.cves {
-  let signal = scanner_common::RiskSignal {
-    cve: cve.id.clone(),
-    cvss: cve.cvss,
-    epss: *intel_state.epss.get(&cve.id).unwrap_or(&0.0),
-    kev: intel_state.kev.contains(&cve.id),
-    runtime: runtime.clone(),
-    package: component.package.clone(),
-    observed_paths: workload
-      .observed_paths
-      .intersection(&component.paths)
-      .cloned()
-      .collect(),
-    signal_weight: workload.signal_weight(),
-  };
+                        for cve in component.cves {
+                            let signal = scanner_common::RiskSignal {
+                                cve: cve.id.clone(),
+                                cvss: cve.cvss,
+                                epss: *intel_state.epss.get(&cve.id).unwrap_or(&0.0),
+                                kev: intel_state.kev.contains(&cve.id),
+                                runtime: runtime.clone(),
+                                package: component.package.clone(),
+                                observed_paths: workload
+                                    .observed_paths
+                                    .intersection(&component.paths)
+                                    .cloned()
+                                    .collect(),
+                                signal_weight: workload.signal_weight(),
+                            };
 
-  if let Some(finding) = risk_engine.evaluate(identity.clone(), signal, None) {
-              let priority = format!("{:?}", finding.priority);
-              metrics.inc_findings(&priority);
-              findings.push(finding.clone());
+                            if let Some(finding) =
+                                risk_engine.evaluate(identity.clone(), signal, None)
+                            {
+                                let priority = format!("{:?}", finding.priority);
+                                metrics.inc_findings(&priority);
+                                findings.push(finding.clone());
 
-              // Output JSON finding for test validation
-              match serde_json::to_string(&finding) {
-                Ok(json) => {
-                  println!("{}", json);
-                  info!(finding_json = %json, "finding_generated");
-                }
-                Err(e) => {
-                  warn!(error = %e, "failed to serialize finding");
-                }
-              }
+                                // Output JSON finding for test validation
+                                match serde_json::to_string(&finding) {
+                                    Ok(json) => {
+                                        println!("{}", json);
+                                        info!(finding_json = %json, "finding_generated");
+                                    }
+                                    Err(e) => {
+                                        warn!(error = %e, "failed to serialize finding");
+                                    }
+                                }
 
-              // Trigger remediation for critical findings
-              if matches!(finding.priority, scanner_common::Priority::Critical) {
-                if let Err(e) = remediator.remediate_finding(&finding).await {
-                  warn!("Remediation failed: {}", e);
-                }
+                                // Trigger remediation for critical findings
+                                if matches!(finding.priority, scanner_common::Priority::Critical) {
+                                    if let Err(e) = remediator.remediate_finding(&finding).await {
+                                        warn!("Remediation failed: {}", e);
+                                    }
 
-                // Generate and enforce seccomp profile
-                let seccomp = risk_engine
-                  .build_seccomp_profile(workload.observed_syscalls.clone());
-                if let Err(e) =
-                  persist_seccomp(config, &identity.workload, &seccomp).await
-                {
-                  warn!("Failed to persist seccomp: {}", e);
+                                    // Generate and enforce seccomp profile
+                                    let seccomp = risk_engine
+                                        .build_seccomp_profile(workload.observed_syscalls.clone());
+                                    if let Err(e) =
+                                        persist_seccomp(config, &identity.workload, &seccomp).await
+                                    {
+                                        warn!("Failed to persist seccomp: {}", e);
+                                    }
+                                    if let Err(e) = remediator
+                                        .enforce_seccomp(&identity.workload, &seccomp)
+                                        .await
+                                    {
+                                        warn!("Failed to enforce seccomp: {}", e);
+                                    }
+                                }
+                            }
+                        }
+                    }
                 }
-                if let Err(e) = remediator
-                  .enforce_seccomp(&identity.workload, &seccomp)
-                  .await
-                {
-                  warn!("Failed to enforce seccomp: {}", e);
-                }
-              }
             }
-          }
-        }
-      }
-    }
-    
-    // 🆕 ATTACH ATTACK PATHS TO FINDINGS
-    // Build attack paths and attach to findings for explainability
-    if !findings.is_empty() {
-      let mut attack_graph = runtime_attack_graph::RuntimeAttackGraph::new(300);
-      
-      // Build attack graph from runtime state
-      for (cgroup_id, workload) in store.workloads() {
-        if let Some((container_id, _pid)) = resolver.resolve(*cgroup_id).await {
-          if let Some(identity) = pod_cache.lookup(&container_id).await {
-            // Add process nodes
-            for lib in &workload.loaded_libraries {
-              attack_graph.process_library_load(
-                0,
-                &identity.workload,
-                *cgroup_id,
-                lib,
-                0,
-              );
-            }
-          }
-        }
-      }
-      
-      // Attach attack paths to findings
-      runtime_attack_graph::attach_attack_paths_to_findings(&mut findings, &attack_graph);
-    }
-  }
 
-  // Clear processed state periodically
-  drop(store);
-  state_store.lock().await.clear();
+            // 🆕 ATTACH ATTACK PATHS TO FINDINGS
+            // Build attack paths and attach to findings for explainability
+            if !findings.is_empty() {
+                let mut attack_graph = runtime_attack_graph::RuntimeAttackGraph::new(300);
+
+                // Build attack graph from runtime state
+                for (cgroup_id, workload) in store.workloads() {
+                    if let Some((container_id, _pid)) = resolver.resolve(*cgroup_id).await {
+                        if let Some(identity) = pod_cache.lookup(&container_id).await {
+                            // Add process nodes
+                            for lib in &workload.loaded_libraries {
+                                attack_graph.process_library_load(
+                                    0,
+                                    &identity.workload,
+                                    *cgroup_id,
+                                    lib,
+                                    0,
+                                );
+                            }
+                        }
+                    }
+                }
+
+                // Attach attack paths to findings
+                runtime_attack_graph::attach_attack_paths_to_findings(&mut findings, &attack_graph);
+            }
+        }
+
+        // Clear processed state periodically
+        drop(store);
+        state_store.lock().await.clear();
     }
 }
 
@@ -859,20 +881,20 @@ async fn run_degraded_pipeline(
     };
     state_store.apply_file(&file);
 
-  let net = scanner_common::NetEvent {
-    timestamp_ns: 0,
-    pid: 42,
-    tgid: 42,
-    cgroup_id: 9001,
-    saddr: 10,
-    daddr: 20,
-    sport: 443,
-    dport: 443,
-    family: 2,
-    protocol: 6,
-    kind: scanner_common::EventKind::Connect,
-    data_size: 0,
-  };
+    let net = scanner_common::NetEvent {
+        timestamp_ns: 0,
+        pid: 42,
+        tgid: 42,
+        cgroup_id: 9001,
+        saddr: 10,
+        daddr: 20,
+        sport: 443,
+        dport: 443,
+        family: 2,
+        protocol: 6,
+        kind: scanner_common::EventKind::Connect,
+        data_size: 0,
+    };
     state_store.apply_net(&net);
 
     let identity =
@@ -899,7 +921,7 @@ async fn run_degraded_pipeline(
     for (component, runtime) in components {
         for cve in component.cves {
             metrics.inc_events();
-              let signal = scanner_common::RiskSignal {
+            let signal = scanner_common::RiskSignal {
                 cve: cve.id.clone(),
                 cvss: cve.cvss,
                 epss: *intel_state.epss.get(&cve.id).unwrap_or(&0.0),
@@ -907,31 +929,31 @@ async fn run_degraded_pipeline(
                 runtime: runtime.clone(),
                 package: component.package.clone(),
                 observed_paths: component
-                  .paths
-                  .iter()
-                  .filter(|path| observed_paths.contains(*path))
-                  .cloned()
-                  .collect(),
+                    .paths
+                    .iter()
+                    .filter(|path| observed_paths.contains(*path))
+                    .cloned()
+                    .collect(),
                 signal_weight: 0.0, // Degraded mode - no signal weighting
-              };
-              if let Some(finding) = risk_engine.evaluate(identity.clone(), signal, None) {
-      let priority = format!("{:?}", finding.priority);
-      metrics.inc_findings(&priority);
-      findings.push(finding.clone());
+            };
+            if let Some(finding) = risk_engine.evaluate(identity.clone(), signal, None) {
+                let priority = format!("{:?}", finding.priority);
+                metrics.inc_findings(&priority);
+                findings.push(finding.clone());
 
-      // Output JSON finding for test validation
-      match serde_json::to_string(&finding) {
-        Ok(json) => {
-          println!("{}", json);
-          info!(finding_json = %json, "finding_generated");
+                // Output JSON finding for test validation
+                match serde_json::to_string(&finding) {
+                    Ok(json) => {
+                        println!("{}", json);
+                        info!(finding_json = %json, "finding_generated");
+                    }
+                    Err(e) => {
+                        warn!(error = %e, "failed to serialize finding");
+                    }
+                }
+            }
         }
-        Err(e) => {
-          warn!(error = %e, "failed to serialize finding");
-        }
-      }
     }
-  }
-}
 
     let seccomp = risk_engine.build_seccomp_profile(workload_state.observed_syscalls);
     persist_seccomp(config, &identity.workload, &seccomp).await?;

@@ -224,9 +224,9 @@ impl BackpressureController {
 /// Circuit breaker state
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CircuitState {
-    Closed,    // Normal operation
-    Open,      // Failing, rejecting requests
-    HalfOpen,  // Testing recovery
+    Closed,   // Normal operation
+    Open,     // Failing, rejecting requests
+    HalfOpen, // Testing recovery
 }
 
 /// Circuit breaker for external calls
@@ -331,18 +331,12 @@ impl Watchdog {
         let errors = self.consecutive_errors.load(Ordering::Relaxed);
 
         if elapsed > self.config.watchdog_timeout_secs {
-            warn!(
-                "Watchdog timeout: {}s since last heartbeat",
-                elapsed
-            );
+            warn!("Watchdog timeout: {}s since last heartbeat", elapsed);
             return false;
         }
 
         if errors >= self.config.max_consecutive_errors as u64 {
-            warn!(
-                "Watchdog: {} consecutive errors, marking unhealthy",
-                errors
-            );
+            warn!("Watchdog: {} consecutive errors, marking unhealthy", errors);
             return false;
         }
 
@@ -416,15 +410,18 @@ impl HealthMonitor {
                 None
             };
 
-            components.insert(
-                name.clone(),
-                ComponentHealth { status, message },
-            );
+            components.insert(name.clone(), ComponentHealth { status, message });
         }
 
-        let overall_status = if components.values().any(|c| c.status == HealthStatus::Unhealthy) {
+        let overall_status = if components
+            .values()
+            .any(|c| c.status == HealthStatus::Unhealthy)
+        {
             HealthStatus::Unhealthy
-        } else if components.values().any(|c| c.status == HealthStatus::Degraded) {
+        } else if components
+            .values()
+            .any(|c| c.status == HealthStatus::Degraded)
+        {
             HealthStatus::Degraded
         } else {
             HealthStatus::Healthy
@@ -472,9 +469,8 @@ impl ProductionRunner {
 
     /// Run health check loop
     pub async fn run_health_checks(&self) {
-        let mut interval = tokio::time::interval(Duration::from_secs(
-            self.config.health_check_interval_secs
-        ));
+        let mut interval =
+            tokio::time::interval(Duration::from_secs(self.config.health_check_interval_secs));
 
         loop {
             interval.tick().await;

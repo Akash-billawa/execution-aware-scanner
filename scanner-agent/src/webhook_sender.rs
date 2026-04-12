@@ -109,9 +109,9 @@ impl From<&Priority> for SeverityFilter {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum AlertMode {
-    OnAlertOnly,    // Only when confidence crosses threshold
-    OnUpdate,       // On any path update
-    OnEveryEvent,   // Debug mode - every event
+    OnAlertOnly,  // Only when confidence crosses threshold
+    OnUpdate,     // On any path update
+    OnEveryEvent, // Debug mode - every event
 }
 
 /// Unified alert payload
@@ -227,7 +227,10 @@ impl WebhookSender {
     }
 
     /// Send alert payload
-    pub async fn send_alert(&self, payload: &AlertPayload) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    pub async fn send_alert(
+        &self,
+        payload: &AlertPayload,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         // Check severity filter
         let severity: SeverityFilter = match payload.severity.as_str() {
             "CRITICAL" => SeverityFilter::Critical,
@@ -433,7 +436,10 @@ impl WebhookSender {
                         error!("Webhook failed after {} attempts: {}", attempts, e);
                         return Err(e);
                     }
-                    warn!("Webhook attempt {} failed, retrying in {:?}...", attempts, delay);
+                    warn!(
+                        "Webhook attempt {} failed, retrying in {:?}...",
+                        attempts, delay
+                    );
                     tokio::time::sleep(delay).await;
                     delay *= 2;
                 }
@@ -541,11 +547,7 @@ pub fn create_alert_payload(
     finding: Option<&Finding>,
     scanner_id: &str,
 ) -> AlertPayload {
-    let node_names: Vec<String> = path
-        .nodes
-        .iter()
-        .map(|n| n.node_id())
-        .collect();
+    let node_names: Vec<String> = path.nodes.iter().map(|n| n.node_id()).collect();
 
     let severity = if path.confidence >= 0.9 {
         "CRITICAL"
