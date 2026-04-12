@@ -59,6 +59,7 @@ mod tc_enforcer {
 }
 
 use axum::{extract::State, response::IntoResponse, routing::get, Router};
+use chrono::Utc;
 use clap::Parser;
 use config::AppConfig;
 use enforcement::EnforcementController;
@@ -419,31 +420,42 @@ async fn run_analysis_pipeline(
                                     observed_paths: workload.observed_paths.clone(),
                                 };
 
-                                if let Some(finding) =
-                                    risk_engine.evaluate(identity.clone(), signal)
-                                {
-                                    let priority = format!("{:?}", finding.priority);
-                                    metrics.inc_findings(&priority);
-                                    findings.push(finding.clone());
+            if let Some(finding) =
+              risk_engine.evaluate(identity.clone(), signal)
+            {
+              let priority = format!("{:?}", finding.priority);
+              metrics.inc_findings(&priority);
+              findings.push(finding.clone());
 
-                                    // Trigger remediation for critical
-                                    if matches!(
-                                        finding.priority,
-                                        scanner_common::Priority::Critical
-                                    ) {
-                                        if let Err(e) = remediator.remediate_finding(&finding).await
-                                        {
-                                            warn!("Remediation failed: {}", e);
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                        Err(e) => {
-                            warn!("Vulnerability scan failed for {}: {}", identity.image, e);
-                            // Fall back to SBOM-based detection
-                        }
-                    }
+              // Output JSON finding for test validation
+              match serde_json::to_string(&finding) {
+                Ok(json) => {
+                  println!("{}", json);
+                  info!(finding_json = %json, "finding_generated");
+                }
+                Err(e) => {
+                  warn!(error = %e, "failed to serialize finding");
+                }
+              }
+
+              // Trigger remediation for critical
+              if matches!(
+                finding.priority,
+                scanner_common::Priority::Critical
+              ) {
+                if let Err(e) = remediator.remediate_finding(&finding).await
+                {
+                  warn!("Remediation failed: {}", e);
+                }
+              }
+            }
+          }
+        }
+        Err(e) => {
+          warn!("Vulnerability scan failed for {}: {}", identity.image, e);
+          // Fall back to SBOM-based detection
+        }
+      }
 
                     // Original SBOM-based detection (fallback)
                     let components = sbom_store
@@ -465,35 +477,46 @@ async fn run_analysis_pipeline(
                                     .collect(),
                             };
 
-                            if let Some(finding) = risk_engine.evaluate(identity.clone(), signal) {
-                                let priority = format!("{:?}", finding.priority);
-                                metrics.inc_findings(&priority);
-                                findings.push(finding.clone());
+            if let Some(finding) = risk_engine.evaluate(identity.clone(), signal) {
+              let priority = format!("{:?}", finding.priority);
+              metrics.inc_findings(&priority);
+              findings.push(finding.clone());
 
-                                // Trigger remediation for critical findings
-                                if matches!(finding.priority, scanner_common::Priority::Critical) {
-                                    if let Err(e) = remediator.remediate_finding(&finding).await {
-                                        warn!("Remediation failed: {}", e);
-                                    }
+              // Output JSON finding for test validation
+              match serde_json::to_string(&finding) {
+                Ok(json) => {
+                  println!("{}", json);
+                  info!(finding_json = %json, "finding_generated");
+                }
+                Err(e) => {
+                  warn!(error = %e, "failed to serialize finding");
+                }
+              }
 
-                                    // Generate and enforce seccomp profile
-                                    let seccomp = risk_engine
-                                        .build_seccomp_profile(workload.observed_syscalls.clone());
-                                    if let Err(e) =
-                                        persist_seccomp(config, &identity.workload, &seccomp).await
-                                    {
-                                        warn!("Failed to persist seccomp: {}", e);
-                                    }
-                                    if let Err(e) = remediator
-                                        .enforce_seccomp(&identity.workload, &seccomp)
-                                        .await
-                                    {
-                                        warn!("Failed to enforce seccomp: {}", e);
-                                    }
-                                }
-                            }
-                        }
-                    }
+              // Trigger remediation for critical findings
+              if matches!(finding.priority, scanner_common::Priority::Critical) {
+                if let Err(e) = remediator.remediate_finding(&finding).await {
+                  warn!("Remediation failed: {}", e);
+                }
+
+                // Generate and enforce seccomp profile
+                let seccomp = risk_engine
+                  .build_seccomp_profile(workload.observed_syscalls.clone());
+                if let Err(e) =
+                  persist_seccomp(config, &identity.workload, &seccomp).await
+                {
+                  warn!("Failed to persist seccomp: {}", e);
+                }
+                if let Err(e) = remediator
+                  .enforce_seccomp(&identity.workload, &seccomp)
+                  .await
+                {
+                  warn!("Failed to enforce seccomp: {}", e);
+                }
+              }
+            }
+          }
+        }
                 }
             }
         }
@@ -642,13 +665,24 @@ async fn run_degraded_pipeline(
                     .cloned()
                     .collect(),
             };
-            if let Some(finding) = risk_engine.evaluate(identity.clone(), signal) {
-                let priority = format!("{:?}", finding.priority);
-                metrics.inc_findings(&priority);
-                findings.push(finding);
-            }
+    if let Some(finding) = risk_engine.evaluate(identity.clone(), signal) {
+      let priority = format!("{:?}", finding.priority);
+      metrics.inc_findings(&priority);
+      findings.push(finding.clone());
+
+      // Output JSON finding for test validation
+      match serde_json::to_string(&finding) {
+        Ok(json) => {
+          println!("{}", json);
+          info!(finding_json = %json, "finding_generated");
         }
+        Err(e) => {
+          warn!(error = %e, "failed to serialize finding");
+        }
+      }
     }
+  }
+}
 
     let seccomp = risk_engine.build_seccomp_profile(workload_state.observed_syscalls);
     persist_seccomp(config, &identity.workload, &seccomp).await?;

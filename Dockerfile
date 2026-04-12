@@ -11,9 +11,9 @@ RUN cargo build --release -p scanner-agent --no-default-features
 FROM debian:bookworm-slim
 
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends ca-certificates libelf1 curl \
-    && rm -rf /var/lib/apt/lists/* \
-    && useradd --system --no-create-home --uid 65532 scanner
+  && apt-get install -y --no-install-recommends ca-certificates libelf1 curl protobuf-compiler \
+  && rm -rf /var/lib/apt/lists/* \
+  && useradd --system --no-create-home --uid 65532 scanner
 
 COPY --from=builder /src/target/release/scanner-agent /usr/local/bin/scanner-agent
 COPY examples/sboms /var/lib/scanner/sboms

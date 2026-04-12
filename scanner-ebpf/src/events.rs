@@ -7,7 +7,7 @@ pub const CMD_LEN: usize = 16;
 
 /// Event classification
 #[repr(u8)]
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum EventKind {
     Exec = 1,
     Mmap = 2,

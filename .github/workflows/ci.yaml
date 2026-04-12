@@ -17,35 +17,38 @@ jobs:
     name: Build and Test (Linux)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+    - uses: actions/checkout@v4
 
-      - name: Install Rust
-        uses: dtolnay/rust-toolchain@stable
+    - name: Install protobuf compiler
+      run: sudo apt-get update && sudo apt-get install -y protobuf-compiler
 
-      - name: Cache cargo
-        uses: Swatinem/rust-cache@v2
-        with:
-          key: linux-${{ hashFiles('**/Cargo.lock') }}
+    - name: Install Rust
+      uses: dtolnay/rust-toolchain@stable
 
-      - name: Build scanner-common
-        run: cargo build -p scanner-common --release
+    - name: Cache cargo
+      uses: Swatinem/rust-cache@v2
+      with:
+        key: linux-${{ hashFiles('**/Cargo.lock') }}
 
-      - name: Build scanner-agent (Linux safe)
-        run: cargo build -p scanner-agent --release --no-default-features
-        env:
-          SKIP_PROTO: 1
+    - name: Build scanner-common
+      run: cargo build -p scanner-common --release
 
-      - name: Run tests
-        run: cargo test -p scanner-common --release
-        env:
-          RUST_LOG: debug
+    - name: Build scanner-agent (Linux safe)
+      run: cargo build -p scanner-agent --release --no-default-features
+      env:
+        SKIP_PROTO: 1
 
-      - name: Upload artifacts
-        uses: actions/upload-artifact@v4
-        with:
-          name: linux-build
-          path: target/release/scanner-agent
-          retention-days: 7
+    - name: Run tests
+      run: cargo test -p scanner-common --release
+      env:
+        RUST_LOG: debug
+
+    - name: Upload artifacts
+      uses: actions/upload-artifact@v4
+      with:
+        name: linux-build
+        path: target/release/scanner-agent
+        retention-days: 7
 
   # Build on Windows/Mac (without eBPF)
   build-cross-platform:
@@ -55,45 +58,45 @@ jobs:
         os: [windows-latest, macos-latest]
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v4
+    - uses: actions/checkout@v4
 
-      - name: Install Rust
-        uses: dtolnay/rust-toolchain@stable
+    - name: Install Rust
+      uses: dtolnay/rust-toolchain@stable
 
-      - name: Cache cargo
-        uses: Swatinem/rust-cache@v2
-        with:
-          key: ${{ matrix.os }}-${{ hashFiles('**/Cargo.lock') }}
+    - name: Cache cargo
+      uses: Swatinem/rust-cache@v2
+      with:
+        key: ${{ matrix.os }}-${{ hashFiles('**/Cargo.lock') }}
 
-      - name: Build scanner-common
-        run: cargo build -p scanner-common --release
+    - name: Build scanner-common
+      run: cargo build -p scanner-common --release
 
-      - name: Build scanner-agent (without eBPF)
-        run: cargo build -p scanner-agent --release --no-default-features
+    - name: Build scanner-agent (without eBPF)
+      run: cargo build -p scanner-agent --release --no-default-features
 
-      - name: Run tests (scanner-common only)
-        run: cargo test -p scanner-common --release
+    - name: Run tests (scanner-common only)
+      run: cargo test -p scanner-common --release
 
   # Lint and format check
   lint:
     name: Lint
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+    - uses: actions/checkout@v4
 
-      - name: Install Rust
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          components: rustfmt, clippy
+    - name: Install Rust
+      uses: dtolnay/rust-toolchain@stable
+      with:
+        components: rustfmt, clippy
 
-      - name: Check formatting
-        run: cargo fmt --all -- --check
+    - name: Check formatting
+      run: cargo fmt --all -- --check
 
-      - name: Run clippy (common only)
-        run: cargo clippy -p scanner-common
+    - name: Run clippy (common only)
+      run: cargo clippy -p scanner-common
 
-      - name: Run clippy (agent without eBPF)
-        run: cargo clippy -p scanner-agent --no-default-features
+    - name: Run clippy (agent without eBPF)
+      run: cargo clippy -p scanner-agent --no-default-features
 
   # Security audit
   security:
@@ -101,13 +104,13 @@ jobs:
     runs-on: ubuntu-latest
     continue-on-error: true
     steps:
-      - uses: actions/checkout@v4
+    - uses: actions/checkout@v4
 
-      - name: Install Rust
-        uses: dtolnay/rust-toolchain@stable
+    - name: Install Rust
+      uses: dtolnay/rust-toolchain@stable
 
-      - name: Install cargo-audit
-        run: cargo install cargo-audit
+    - name: Install cargo-audit
+      run: cargo install cargo-audit
 
-      - name: Run cargo audit
-        run: cargo audit || true
+    - name: Run cargo audit
+      run: cargo audit || true

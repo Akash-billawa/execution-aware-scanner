@@ -4,7 +4,7 @@
 mod events;
 mod maps;
 
-use aya_bpf::{
+use aya_ebpf::{
     bindings::sock,
     helpers::{
         bpf_get_current_cgroup_id, bpf_get_current_comm, bpf_get_current_pid_tgid, bpf_ktime_get_ns,
@@ -86,7 +86,7 @@ unsafe fn try_execve(ctx: &TracePointContext) -> Result<u32, i64> {
         log_security_event(cgroup_id, SecurityEventType::SuspiciousExec);
     }
 
-    debug!("Process started: PID={}, CG={}", pid_tgid as u32, cgroup_id);
+    debug!("Process started");
     Ok(0)
 }
 
@@ -243,13 +243,7 @@ unsafe fn try_tcp_connect(ctx: &KProbeContext) -> Result<u32, i64> {
 
     // Check against threat intelligence IPs
     if THREAT_INTEL_IPS.get(&daddr).is_some() {
-        warn!(
-            "Connection to malicious IP: {}.{}.{}.{}",
-            (daddr >> 24) & 0xFF,
-            (daddr >> 16) & 0xFF,
-            (daddr >> 8) & 0xFF,
-            daddr & 0xFF
-        );
+        warn!("Connection to malicious IP detected");
         log_security_event(cgroup_id, SecurityEventType::MaliciousConnection);
     }
 
@@ -506,17 +500,19 @@ unsafe fn path_len(path: &[u8]) -> usize {
 }
 
 unsafe fn is_suspicious_command(cmd: &[u8]) -> bool {
-    // Check for common attack patterns
-    let patterns: [[u8; 8]; 3] = [
-        *b"nc -e \0\0",     // Netcat backdoor
-        *b"bash -i\0\0",    // Interactive bash
-        *b"python\0\0\0\0", // Python reverse shell
-    ];
-
-    for pattern in &patterns {
-        if starts_with(cmd, pattern) {
-            return true;
-        }
+  // Check for common attack patterns
+  // Compare byte slices directly
+  if starts_with(cmd, b"nc -e ") {
+    return true;
+  }
+  if starts_with(cmd, b"bash -i") {
+    return true;
+  }
+  if starts_with(cmd, b"python") {
+    return true;
+  }
+  false
+}
     }
     false
 }
@@ -534,15 +530,20 @@ unsafe fn starts_with(s: &[u8], prefix: &[u8]) -> bool {
 }
 
 unsafe fn should_monitor_file(path: &[u8]) -> bool {
-    // Monitor sensitive paths
-    let sensitive: &[[u8]] = &[b"/etc/passwd", b"/etc/shadow", b"/etc/ssl", b"/usr/bin"];
+  // Monitor sensitive paths
+  let sensitive: &[&[u8]] = &[
+    b"/etc/passwd",
+    b"/etc/shadow",
+    b"/etc/ssl",
+    b"/usr/bin",
+  ];
 
-    for s in sensitive {
-        if starts_with(path, s) {
-            return true;
-        }
+  for s in sensitive {
+    if starts_with(path, s) {
+      return true;
     }
-    false
+  }
+  false
 }
 
 unsafe fn update_file_cache(path: &[u8]) {
@@ -638,12 +639,14 @@ unsafe fn hash_path(path: &[u8]) -> u32 {
     hash
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum SyscallType {
     Exec,
     File,
     Network,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum SecurityEventType {
     SuspiciousExec = 1,
     MaliciousConnection = 2,

@@ -1,7 +1,8 @@
 // BPF Map definitions for advanced eBPF scanner
 
-use aya_bpf::macros::map;
-use aya_bpf::maps::{HashMap, LruHashMap, PerfEventArray, RingBuf};
+use aya_ebpf::helpers::bpf_ktime_get_ns;
+use aya_ebpf::macros::map;
+use aya_ebpf::maps::{HashMap, LruHashMap, PerfEventArray, RingBuf};
 
 use crate::events::*;
 
@@ -164,7 +165,7 @@ pub unsafe fn init_cgroup_stats(cgroup_id: u64) {
             mmap_count: 0,
             connect_count: 0,
             bind_count: 0,
-            first_seen_ns: aya_bpf::helpers::bpf_ktime_get_ns(),
+            first_seen_ns: bpf_ktime_get_ns(),
             last_seen_ns: 0,
         };
         let _ = CGROUP_STATS.insert(&cgroup_id, &stats, 0);
@@ -182,7 +183,7 @@ pub unsafe fn is_syscall_allowed(cgroup_id: u64, syscall_mask: u64) -> bool {
 
 /// Rate limit check
 pub unsafe fn check_rate_limit(key: u64, interval_ns: u64) -> bool {
-    let now = aya_bpf::helpers::bpf_ktime_get_ns();
+    let now = bpf_ktime_get_ns();
 
     if let Some(last) = ALERT_TIMESTAMPS.get(&key) {
         if now - *last < interval_ns {

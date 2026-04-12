@@ -8,7 +8,7 @@ pub const LSM_RET_NOOP: i32 = -2;
 
 // Security events that can be triggered by LSM hooks
 #[repr(u8)]
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, PartialEq, Eq)]
 pub enum SecurityHook {
     FileOpen = 1,
     FilePermission = 2,
@@ -42,19 +42,15 @@ pub const SECCTX_FLAG_PRIVILEGED: u32 = 1 << 3;
 pub unsafe fn log_security_event(hook: SecurityHook, cgroup_id: u64, pid: u32, action: u8) {
     use crate::events::SecurityEvent;
     use crate::maps::SECURITY_EVENTS;
-    use aya_bpf::helpers::bpf_ktime_get_ns;
+    use aya_ebpf::helpers::bpf_ktime_get_ns;
 
     let event = SecurityEvent {
         timestamp_ns: bpf_ktime_get_ns(),
         pid,
         tgid: pid, // Simplified
         cgroup_id,
-        kind: match hook {
-            SecurityHook::BprmCheckSecurity => crate::events::EventKind::SecurityDeny,
-            _ => crate::events::EventKind::SecurityAllow,
-        },
-        resource_id: hook as u64,
-        action,
+        event_type: hook as u32,
+        severity: action,
     };
 
     if let Some(mut slot) = SECURITY_EVENTS.reserve::<SecurityEvent>(0) {
