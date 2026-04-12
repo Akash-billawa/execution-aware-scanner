@@ -8,8 +8,9 @@ license.workspace = true
 path = "src/lib.rs"
 
 [dependencies]
-aya-ebpf = "0.1"
-aya-log-ebpf.workspace = true
+# Pin to older version to avoid API breaking changes in 0.1.x
+aya-ebpf = "=0.1.0"
+aya-log-ebpf = "=0.1.0"
 
 [profile.dev]
 panic = "abort"

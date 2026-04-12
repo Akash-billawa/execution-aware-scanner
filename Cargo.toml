@@ -35,6 +35,7 @@ tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt", "json"]
 uuid = { version = "1.11", features = ["serde", "v4"] }
 
 # Linux-only eBPF dependencies (declared in workspace, conditionally used)
+# Using compatible versions - these must match between user-space and kernel-space
 aya = { version = "0.13", features = ["async_tokio"] }
 aya-log = "0.2"
 aya-log-ebpf = "0.1"
