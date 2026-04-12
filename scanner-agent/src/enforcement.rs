@@ -1,11 +1,11 @@
 use crate::config::RemediatorConfig;
 use crate::error::ScannerError;
-use scanner_common::{Finding, Priority, RuntimeIdentity};
+use scanner_common::{Finding, Priority};
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::RwLock;
-use tracing::{error, info, warn};
+use tracing::{info, warn};
 
 /// Enforcement actions that can be taken
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]

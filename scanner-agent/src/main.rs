@@ -9,6 +9,7 @@ mod intel;
 mod k8s;
 mod metrics;
 mod remediator;
+mod reliability;
 mod risk_engine;
 mod runtime_attack_graph;
 mod runtime_attack_graph_v2;
@@ -16,9 +17,12 @@ mod runtime_mapper;
 mod safe_enforcement;
 mod sbom;
 mod state;
+mod streaming_engine;
 mod validation;
+mod visualization;
 mod vuln_detector;
 mod webhook;
+mod webhook_sender;
 
 // eBPF modules only available with ebpf feature
 #[cfg(feature = "ebpf")]
@@ -62,7 +66,6 @@ mod tc_enforcer {
 }
 
 use axum::{extract::State, response::IntoResponse, routing::get, Router};
-use chrono::Utc;
 use clap::Parser;
 use config::AppConfig;
 use enforcement::EnforcementController;
@@ -73,7 +76,6 @@ use kube::Client;
 use metrics::Metrics;
 use remediator::RemediatorService;
 use risk_engine::RiskEngine;
-use runtime_mapper::RuntimeMapper;
 use safe_enforcement::{EnforcementMode, SafeEnforcer};
 use sbom::SbomStore;
 use scanner_common::Finding;
@@ -90,14 +92,25 @@ use tc_enforcer::{TcEnforcer, ThreatIntelFeed};
 
 // Stub types for non-eBPF
 #[cfg(not(feature = "ebpf"))]
-use event_consumer::{ConsumerStats, EventConsumer};
+use event_consumer::ConsumerStats;
 #[cfg(not(feature = "ebpf"))]
 use tc_enforcer::{TcEnforcer, ThreatIntelFeed};
 
 use tokio::net::TcpListener;
-use tokio::sync::{watch, Mutex};
-use tokio::time::{interval, Duration, Instant};
-use tracing::{error, info, warn};
+use tokio::sync::{watch, Mutex, RwLock};
+use tokio::time::{interval, Duration};
+use tracing::{info, warn};
+
+/// Parse duration string (e.g., "1s", "500ms")
+fn parse_duration(s: &str) -> u64 {
+    if s.ends_with("ms") {
+        s[..s.len() - 2].parse().unwrap_or(1000)
+    } else if s.ends_with("s") {
+        s[..s.len() - 1].parse().unwrap_or(1) * 1000
+    } else {
+        s.parse().unwrap_or(1000)
+    }
+}
 
 #[derive(Parser, Debug)]
 struct Cli {
@@ -105,6 +118,31 @@ struct Cli {
     once: bool,
     #[arg(long, default_value = "eth0")]
     iface: String,
+    #[arg(long, value_enum, default_value = "batch")]
+    mode: ExecutionMode,
+    #[arg(long, default_value_t = false)]
+    stream_json: bool,
+    #[arg(long, default_value = "1s")]
+    stream_interval: String,
+    #[arg(long, default_value_t = 3)]
+    top_k: usize,
+    #[arg(long)]
+    export_graph: Option<String>,
+    /// Webhook URL for alerts
+    #[arg(long)]
+    webhook_url: Option<String>,
+    /// Webhook type (generic, elastic, splunk, slack, teams, datadog)
+    #[arg(long, default_value = "generic")]
+    webhook_type: String,
+    /// Alert mode (on_alert_only, on_update, on_every_event)
+    #[arg(long, default_value = "on_alert_only")]
+    alert_mode: String,
+}
+
+#[derive(clap::ValueEnum, Debug, Clone, Copy, PartialEq)]
+enum ExecutionMode {
+    Batch,
+    Stream,
 }
 
 #[derive(Clone)]
@@ -257,25 +295,93 @@ async fn main() -> Result<(), ScannerError> {
         }
     };
 
-    // Run analysis pipeline
-    let analysis_config = config.clone();
-    let safe_enforcer_for_pipeline = SafeEnforcer::new(EnforcementMode::Audit, config.risk.clone());
-    let analysis_handle = tokio::spawn(async move {
-        run_analysis_pipeline(
-            &analysis_config,
-            sbom_store,
-            intel,
-            pod_cache,
-            risk_engine,
-            metrics,
-            state_store,
-            cgroup_resolver,
-            remediator,
-            vuln_detector,
-            safe_enforcer_for_pipeline,
-        )
-        .await
-    });
+    // Initialize attack graph for streaming mode
+    let attack_graph = Arc::new(RwLock::new(runtime_attack_graph_v2::RuntimeAttackGraph::with_defaults()));
+
+    // Setup webhook manager if URL is provided
+    let mut webhook_manager = webhook_sender::WebhookManager::new();
+    if let Some(webhook_url) = &cli.webhook_url {
+        let webhook_type = match cli.webhook_type.as_str() {
+            "elastic" => webhook_sender::WebhookType::Elastic,
+            "splunk" => webhook_sender::WebhookType::Splunk,
+            "slack" => webhook_sender::WebhookType::Slack,
+            "teams" => webhook_sender::WebhookType::Teams,
+            "datadog" => webhook_sender::WebhookType::Datadog,
+            _ => webhook_sender::WebhookType::Generic,
+        };
+
+        let alert_mode = match cli.alert_mode.as_str() {
+            "on_alert_only" => webhook_sender::AlertMode::OnAlertOnly,
+            "on_update" => webhook_sender::AlertMode::OnUpdate,
+            "on_every_event" => webhook_sender::AlertMode::OnEveryEvent,
+            _ => webhook_sender::AlertMode::OnAlertOnly,
+        };
+
+        let webhook_config = webhook_sender::WebhookConfig {
+            url: webhook_url.clone(),
+            webhook_type,
+            auth: webhook_sender::WebhookAuth::None,
+            rate_limit: 60,
+            min_severity: webhook_sender::SeverityFilter::High,
+            alert_mode,
+            timeout_secs: 30,
+            retry_attempts: 3,
+        };
+
+        webhook_manager.add_webhook(webhook_config);
+        info!("Webhook configured: {} (type: {})", webhook_url, cli.webhook_type);
+    }
+
+    let webhook_manager = Arc::new(webhook_manager);
+
+    // Run pipeline based on mode
+    let analysis_handle: tokio::task::JoinHandle<Result<Vec<Finding>, ScannerError>> = if cli.mode == ExecutionMode::Stream {
+        // Stream mode: real-time continuous updates
+        info!("Running in STREAM mode - real-time attack path detection");
+
+        let streaming_config = streaming_engine::StreamingConfig {
+            output_interval_ms: parse_duration(&cli.stream_interval),
+            alert_threshold: 0.8,
+            risk_escalation_threshold: 0.7,
+            channel_buffer_size: 1000,
+            stream_json: cli.stream_json,
+            top_k: cli.top_k,
+            export_graph: cli.export_graph.is_some(),
+            graph_export_interval_secs: 60,
+        };
+
+        tokio::spawn(async move {
+            streaming_engine::run_streaming_mode_with_webhooks(
+                attack_graph.clone(),
+                streaming_config,
+                webhook_manager.clone(),
+            ).await;
+            // Streaming mode doesn't produce findings in the same way
+            Ok(Vec::new())
+        })
+    } else {
+        // Batch mode: traditional analysis
+        info!("Running in BATCH mode - periodic analysis");
+
+        let analysis_config = config.clone();
+        let safe_enforcer_for_pipeline = SafeEnforcer::new(EnforcementMode::Audit, config.risk.clone());
+
+        tokio::spawn(async move {
+            run_analysis_pipeline(
+                &analysis_config,
+                sbom_store,
+                intel,
+                pod_cache,
+                risk_engine,
+                metrics,
+                state_store,
+                cgroup_resolver,
+                remediator,
+                vuln_detector,
+                safe_enforcer_for_pipeline,
+            ).await
+        })
+    };
 
     // Wait for completion or signal
     tokio::signal::ctrl_c().await.ok();
@@ -384,7 +490,7 @@ async fn run_analysis_pipeline(
     cgroup_resolver: Arc<Mutex<cgroup::CgroupResolver>>,
     remediator: RemediatorService,
     vuln_detector: VulnDetector,
-    mut safe_enforcer: safe_enforcement::SafeEnforcer,
+    safe_enforcer: safe_enforcement::SafeEnforcer,
 ) -> Result<Vec<Finding>, ScannerError> {
     let mut findings = Vec::new();
     let mut ticker = interval(Duration::from_secs(30));
@@ -682,7 +788,10 @@ async fn metrics_handler(State(state): State<AppState>) -> impl IntoResponse {
 }
 
 async fn health_handler() -> impl IntoResponse {
-    "OK"
+    axum::response::Json(serde_json::json!({
+        "status": "healthy",
+        "timestamp": chrono::Utc::now().to_rfc3339(),
+    }))
 }
 
 async fn ready_handler(State(state): State<AppState>) -> impl IntoResponse {

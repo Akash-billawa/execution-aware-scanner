@@ -1,6 +1,5 @@
-use scanner_common::{EventKind, RuntimeDisposition};
+use scanner_common::EventKind;
 use serde::{Deserialize, Serialize};
-use std::collections::BTreeMap;
 use std::time::Duration;
 
 /// Configuration for A/B testing and signal ablation studies

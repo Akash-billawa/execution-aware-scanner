@@ -3,7 +3,6 @@
 
 use crate::vuln_detector::{Severity, Vulnerability};
 use scanner_common::{Finding, Priority};
-use std::collections::HashMap;
 
 /// Validation results comparing scan methods
 #[derive(Debug, Clone)]

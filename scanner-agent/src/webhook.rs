@@ -1,9 +1,8 @@
 use crate::error::ScannerError;
 use scanner_common::Finding;
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
 use std::time::Duration;
-use tracing::{debug, error, info, warn};
+use tracing::{error, info, warn};
 
 /// Webhook configuration
 #[derive(Debug, Clone, Deserialize)]

@@ -1,8 +1,6 @@
 use crate::config::RiskConfig;
 use crate::error::ScannerError;
-use scanner_common::{Finding, Priority, SeccompProfile};
-use std::collections::BTreeSet;
-use std::time::Duration;
+use scanner_common::{Finding, SeccompProfile};
 
 // Conditionally compile protobuf code only if it was generated
 #[cfg(feature = "remediator-proto")]

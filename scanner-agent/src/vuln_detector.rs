@@ -2,9 +2,8 @@
 //! Detects real CVEs from container images and filesystems
 
 use crate::error::ScannerError;
-use scanner_common::{CveRecord, SbomComponent};
+use scanner_common::CveRecord;
 use serde::{Deserialize, Serialize};
-use std::collections::BTreeMap;
 use std::path::Path;
 use std::process::Command;
 

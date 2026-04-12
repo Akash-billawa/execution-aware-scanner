@@ -1,0 +1,285 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: execution-aware-scanner
+  labels:
+    app.kubernetes.io/name: execution-aware-scanner
+---
+# Production-grade DaemonSet with reliability features
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: execution-aware-scanner
+  namespace: execution-aware-scanner
+  labels:
+    app.kubernetes.io/name: execution-aware-scanner
+    app.kubernetes.io/version: "0.1.0"
+    app.kubernetes.io/component: security-scanner
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: execution-aware-scanner
+  updateStrategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 1
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: execution-aware-scanner
+        app.kubernetes.io/component: security-scanner
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "9898"
+        prometheus.io/path: "/metrics"
+    spec:
+      serviceAccountName: scanner-agent
+      hostPID: true  # Required for eBPF
+      hostNetwork: false
+      restartPolicy: Always
+      priorityClassName: system-node-critical  # Ensure scanner runs
+      
+      # Spread across nodes
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: kubernetes.io/hostname
+          whenUnsatisfiable: DoNotSchedule
+          labelSelector:
+            matchLabels:
+              app.kubernetes.io/name: execution-aware-scanner
+      
+      # Resource requests/limits
+      containers:
+        - name: scanner-agent
+          image: ghcr.io/akash-billawa/execution-aware-scanner:latest
+          imagePullPolicy: IfNotPresent
+          
+          # Production arguments
+          args:
+            - "--mode"
+            - "stream"
+            - "--stream-json"
+            - "--stream-interval"
+            - "1s"
+            - "--top-k"
+            - "3"
+            - "--webhook-url"
+            - "$(WEBHOOK_URL)"
+            - "--webhook-type"
+            - "$(WEBHOOK_TYPE)"
+            - "--alert-mode"
+            - "on_alert_only"
+          
+          # Environment configuration
+          env:
+            # Logging
+            - name: RUST_LOG
+              value: "info,scanner_agent=debug"
+            
+            # Runtime metadata
+            - name: NODE_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: spec.nodeName
+            
+            - name: POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            
+            - name: POD_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+            
+            - name: POD_IP
+              valueFrom:
+                fieldRef:
+                  fieldPath: status.podIP
+            
+            # Scanner configuration
+            - name: SCANNER__RUNTIME__NODE_NAME
+              value: "$(NODE_NAME)"
+            
+            - name: SCANNER__RUNTIME__SBOM_DIR
+              value: "/var/lib/scanner/sboms"
+            
+            - name: SCANNER__RUNTIME__SECCOMP_OUTPUT_DIR
+              value: "/var/lib/scanner/seccomp"
+            
+            - name: SCANNER__BPF__OBJECT_PATH
+              value: "/opt/scanner/scanner-ebpf.o"
+            
+            # Reliability configuration
+            - name: SCANNER__RELIABILITY__CHANNEL_BUFFER_SIZE
+              value: "10000"
+            
+            - name: SCANNER__RELIABILITY__WATCHDOG_TIMEOUT_SECS
+              value: "60"
+            
+            - name: SCANNER__RELIABILITY__MAX_CONSECUTIVE_ERRORS
+              value: "5"
+            
+            # Webhook configuration
+            - name: WEBHOOK_URL
+              valueFrom:
+                configMapKeyRef:
+                  name: scanner-config
+                  key: webhook.url
+                  optional: true
+            
+            - name: WEBHOOK_TYPE
+              valueFrom:
+                configMapKeyRef:
+                  name: scanner-config
+                  key: webhook.type
+                  optional: true
+            
+          # Resource limits
+          resources:
+            requests:
+              cpu: "100m"
+              memory: "256Mi"
+            limits:
+              cpu: "1000m"
+              memory: "512Mi"
+          
+          # Security context
+          securityContext:
+            privileged: false
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            runAsUser: 0  # Required for eBPF
+            capabilities:
+              add:
+                - BPF
+                - PERFMON
+                - NET_ADMIN
+                - SYS_ADMIN
+                - SYS_RESOURCE
+          
+          # Health probes
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: metrics
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+          
+          readinessProbe:
+            httpGet:
+              path: /ready
+              port: metrics
+            initialDelaySeconds: 10
+            periodSeconds: 5
+            timeoutSeconds: 3
+            failureThreshold: 3
+          
+          # Metrics port
+          ports:
+            - name: metrics
+              containerPort: 9898
+              protocol: TCP
+          
+          # Volume mounts
+          volumeMounts:
+            - name: sys-fs-bpf
+              mountPath: /sys/fs/bpf
+              mountPropagation: Bidirectional
+            
+            - name: proc
+              mountPath: /host/proc
+              readOnly: true
+            
+            - name: scanner-state
+              mountPath: /var/lib/scanner
+            
+            - name: scanner-ebpf
+              mountPath: /opt/scanner
+              readOnly: true
+            
+            - name: tmp
+              mountPath: /tmp
+      
+      # Volumes
+      volumes:
+        - name: sys-fs-bpf
+          hostPath:
+            path: /sys/fs/bpf
+            type: Directory
+        
+        - name: proc
+          hostPath:
+            path: /proc
+            type: Directory
+        
+        - name: scanner-state
+          hostPath:
+            path: /var/lib/execution-aware-scanner
+            type: DirectoryOrCreate
+        
+        - name: scanner-ebpf
+          configMap:
+            name: scanner-ebpf-bundle
+            optional: true
+        
+        - name: tmp
+          emptyDir: {}
+      
+      # Tolerations for all nodes
+      tolerations:
+        - operator: Exists
+          effect: NoSchedule
+        - operator: Exists
+          effect: NoExecute
+      
+      # Affinity rules
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+              - matchExpressions:
+                  - key: kubernetes.io/os
+                    operator: In
+                    values:
+                      - linux
+                  - key: kubernetes.io/arch
+                    operator: In
+                    values:
+                      - amd64
+                      - arm64
+---
+# Horizontal Pod Autoscaler (if metrics supported)
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: execution-aware-scanner
+  namespace: execution-aware-scanner
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: DaemonSet
+    name: execution-aware-scanner
+  minReplicas: 1
+  maxReplicas: 1
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 80
+---
+# Pod Disruption Budget
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: execution-aware-scanner
+  namespace: execution-aware-scanner
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: execution-aware-scanner

@@ -18,7 +18,7 @@ use petgraph::visit::EdgeRef;
 use scanner_common::{EventKind, Finding, NetEvent, RuntimeDisposition, SignalEvidence};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 /// Configuration for attack graph behavior
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -794,6 +794,44 @@ impl RuntimeAttackGraph {
             "{:?}",
             Dot::with_config(&self.graph, &[Config::EdgeNoLabel])
         )
+    }
+
+    /// Get all nodes in the graph
+    pub fn nodes(&self) -> Vec<&RuntimeNode> {
+        self.graph.node_weights().collect()
+    }
+
+    /// Get all edges in the graph
+    pub fn edges(&self) -> Vec<(String, String, &RuntimeEdge)> {
+        self.graph
+            .edge_references()
+            .map(|e| {
+                let source = self
+                    .graph
+                    .node_weight(e.source())
+                    .map(|n| n.node_id())
+                    .unwrap_or_default();
+                let target = self
+                    .graph
+                    .node_weight(e.target())
+                    .map(|n| n.node_id())
+                    .unwrap_or_default();
+                (source, target, e.weight())
+            })
+            .collect()
+    }
+
+    /// Get all attack paths currently in the graph
+    pub fn paths(&self) -> &[AttackPath] {
+        // Attack paths are computed on-demand via build_attack_paths
+        // This returns an empty slice since paths aren't stored
+        // Call build_attack_paths() to get paths
+        &[]
+    }
+
+    /// Get configuration
+    pub fn config(&self) -> &AttackGraphConfig {
+        &self.config
     }
 }
 

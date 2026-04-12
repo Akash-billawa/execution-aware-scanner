@@ -2,10 +2,9 @@
 //! Provides concrete evidence that vulnerabilities are actively being exploited
 //! Tracks: function calls, network activity, file access, syscall patterns
 
-use crate::error::ScannerError;
 use scanner_common::{EventKind, ExecEvent, FileEvent, NetEvent};
 use std::collections::{BTreeMap, BTreeSet};
-use std::time::{Duration, SystemTime};
+use std::time::SystemTime;
 
 /// Evidence of vulnerability exploitation
 #[derive(Debug, Clone)]

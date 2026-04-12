@@ -1,13 +1,12 @@
 //! Attack Path Graph - Advanced attack chain detection
 //! Uses petgraph to model service dependencies and vulnerability chains
 
-use crate::error::ScannerError;
 use petgraph::algo::{astar, has_path_connecting, kosaraju_scc};
 use petgraph::graph::{DiGraph, NodeIndex};
 use petgraph::visit::EdgeRef;
-use scanner_common::{Finding, RuntimeIdentity};
+use scanner_common::Finding;
 use serde::{Deserialize, Serialize};
-use std::collections::{BTreeMap, HashMap};
+use std::collections::HashMap;
 use std::fmt;
 
 /// Node in attack graph

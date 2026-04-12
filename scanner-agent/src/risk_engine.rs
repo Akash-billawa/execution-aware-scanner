@@ -1,7 +1,6 @@
 use crate::config::RiskConfig;
-use crate::error::ScannerError;
 use scanner_common::{
-  CveRecord, ExplainabilityReport, Finding, Priority, RiskComponents, RiskSignal, RuntimeDisposition,
+  ExplainabilityReport, Finding, Priority, RiskComponents, RiskSignal, RuntimeDisposition,
   RuntimeIdentity, SeccompProfile, SeccompRule, SignalEvidence,
 };
 use std::collections::{BTreeMap, BTreeSet, HashMap};
