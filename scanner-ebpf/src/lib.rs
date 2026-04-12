@@ -654,7 +654,7 @@ unsafe fn update_file_cache(path: &[u8]) {
     let hash = hash_path(path);
     let now = bpf_ktime_get_ns();
 
-    if let Some(entry) = FILE_CACHE.get_ptr_mut(&hash) {
+    if let Some(entry) = FILE_CACHE.get_mut(&hash) {
         entry.last_access_ns = now;
         entry.access_count += 1;
     } else {
@@ -681,7 +681,7 @@ unsafe fn track_library_load(pid: u32, path: &[u8]) -> Result<(), i64> {
 }
 
 unsafe fn update_cgroup_stats(cgroup_id: u64, syscall_type: SyscallType) {
-    if let Some(stats) = CGROUP_STATS.get_ptr_mut(&cgroup_id) {
+    if let Some(stats) = CGROUP_STATS.get_mut(&cgroup_id) {
         stats.last_seen_ns = bpf_ktime_get_ns();
         match syscall_type {
             SyscallType::Exec => stats.exec_count += 1,
