@@ -2,32 +2,40 @@
 #![no_main]
 
 mod events;
-mod lsm;
 mod maps;
-mod xdp;
 
 use aya_bpf::{
     bindings::sock,
     helpers::{
-        bpf_get_current_cgroup_id, bpf_get_current_comm, bpf_get_current_pid_tgid,
-        bpf_get_current_uid_gid, bpf_ktime_get_ns,
+        bpf_get_current_cgroup_id, bpf_get_current_comm, bpf_get_current_pid_tgid, bpf_ktime_get_ns,
     },
     macros::{kprobe, lsm, map, tracepoint, xdp},
-    maps::{HashMap, PerfEventArray, RingBuf},
+    maps::{HashMap, LruHashMap, RingBuf},
     programs::{KProbeContext, LsmContext, TracePointContext, XdpContext},
 };
-use aya_log_ebpf::info;
-use core::mem;
-use events::{EventKind, ExecEvent, FileEvent, NetEvent, SecurityEvent, ARGS_LEN, PATH_LEN};
+use aya_log_ebpf::{debug, info, warn};
+use events::*;
 use maps::*;
 
-// Tracepoint hooks for syscalls
-#[tracepoint(name = "scanner_execve")]
-pub fn scanner_execve(ctx: TracePointContext) -> u32 {
+// ═══════════════════════════════════════════════════════════════════════════
+// ADVANCED eBPF SCANNER - Comprehensive Runtime Security
+// ═══════════════════════════════════════════════════════════════════════════
+
+// ───────────────────────────────────────────────────────────────────────────
+// 1. EXECUTION MONITORING (Tracepoints)
+// ───────────────────────────────────────────────────────────────────────────
+
+#[tracepoint(name = "sys_enter_execve")]
+pub fn trace_execve(ctx: TracePointContext) -> u32 {
     match unsafe { try_execve(&ctx) } {
         Ok(ret) => ret,
         Err(_) => 0,
     }
+}
+
+#[tracepoint(name = "sys_enter_execveat")]
+pub fn trace_execveat(ctx: TracePointContext) -> u32 {
+    trace_execve(ctx)
 }
 
 unsafe fn try_execve(ctx: &TracePointContext) -> Result<u32, i64> {
@@ -35,8 +43,8 @@ unsafe fn try_execve(ctx: &TracePointContext) -> Result<u32, i64> {
     let uid_gid = bpf_get_current_uid_gid();
     let cgroup_id = bpf_get_current_cgroup_id();
 
-    // Check if cgroup is allowlisted
-    if let Some(_) = ALLOWLIST.get(&cgroup_id) {
+    // Check allowlist
+    if ALLOWLIST.get(&cgroup_id).is_some() {
         return Ok(0);
     }
 
@@ -50,65 +58,76 @@ unsafe fn try_execve(ctx: &TracePointContext) -> Result<u32, i64> {
         ppid: 0,
         command: [0; 16],
         argv: [0; ARGS_LEN],
+        envp: [0; ENV_LEN],
     };
 
+    // Capture command name
     let _ = bpf_get_current_comm(&mut event.command);
-    let _ = ctx.read_at(16, &mut event.argv);
 
-    // Emit via perf buffer for lower latency
+    // Read arguments from syscall (struct pt_regs offset)
+    // arg1 = filename, arg2 = argv, arg3 = envp
+    let _ = ctx.read_at(16, &mut event.argv);
+    let _ = ctx.read_at(24, &mut event.envp);
+
+    // Track process parent
+    let _ = PROCESS_PARENT.insert(&(pid_tgid as u32), &((pid_tgid >> 32) as u32), 0);
+
+    // Emit event
     if let Some(mut slot) = EXEC_EVENTS.reserve::<ExecEvent>(0) {
         slot.write(event);
         slot.submit(0);
     }
 
     // Update cgroup stats
-    if let Some(stats) = unsafe { CGROUP_STATS.get_mut(&cgroup_id) } {
-        stats.exec_count += 1;
-        stats.last_seen_ns = event.timestamp_ns;
+    update_cgroup_stats(cgroup_id, SyscallType::Exec);
+
+    // Check for suspicious patterns
+    if is_suspicious_command(&event.command) {
+        log_security_event(cgroup_id, SecurityEventType::SuspiciousExec);
     }
 
+    debug!("Process started: PID={}, CG={}", pid_tgid as u32, cgroup_id);
     Ok(0)
 }
 
-#[tracepoint(name = "scanner_execveat")]
-pub fn scanner_execveat(ctx: TracePointContext) -> u32 {
-    scanner_execve(ctx)
-}
+// ───────────────────────────────────────────────────────────────────────────
+// 2. FILE MONITORING (Tracepoints + LSM)
+// ───────────────────────────────────────────────────────────────────────────
 
-#[tracepoint(name = "scanner_openat")]
-pub fn scanner_openat(ctx: TracePointContext) -> u32 {
-    match unsafe { emit_file_event(&ctx, EventKind::Open) } {
+#[tracepoint(name = "sys_enter_openat")]
+pub fn trace_openat(ctx: TracePointContext) -> u32 {
+    match unsafe { try_file_event(&ctx, EventKind::Open) } {
         Ok(ret) => ret,
         Err(_) => 0,
     }
 }
 
-#[tracepoint(name = "scanner_openat2")]
-pub fn scanner_openat2(ctx: TracePointContext) -> u32 {
-    scanner_openat(ctx)
+#[tracepoint(name = "sys_enter_openat2")]
+pub fn trace_openat2(ctx: TracePointContext) -> u32 {
+    trace_openat(ctx)
 }
 
-#[tracepoint(name = "scanner_mmap")]
-pub fn scanner_mmap(ctx: TracePointContext) -> u32 {
-    match unsafe { emit_file_event(&ctx, EventKind::Mmap) } {
+#[tracepoint(name = "sys_enter_mmap")]
+pub fn trace_mmap(ctx: TracePointContext) -> u32 {
+    match unsafe { try_file_event(&ctx, EventKind::Mmap) } {
         Ok(ret) => ret,
         Err(_) => 0,
     }
 }
 
-#[tracepoint(name = "scanner_mprotect")]
-pub fn scanner_mprotect(ctx: TracePointContext) -> u32 {
-    match unsafe { emit_file_event(&ctx, EventKind::Mprotect) } {
+#[tracepoint(name = "sys_enter_mprotect")]
+pub fn trace_mprotect(ctx: TracePointContext) -> u32 {
+    match unsafe { try_file_event(&ctx, EventKind::Mprotect) } {
         Ok(ret) => ret,
         Err(_) => 0,
     }
 }
 
-unsafe fn emit_file_event(ctx: &TracePointContext, kind: EventKind) -> Result<u32, i64> {
+unsafe fn try_file_event(ctx: &TracePointContext, kind: EventKind) -> Result<u32, i64> {
     let pid_tgid = bpf_get_current_pid_tgid();
     let cgroup_id = bpf_get_current_cgroup_id();
 
-    if let Some(_) = ALLOWLIST.get(&cgroup_id) {
+    if ALLOWLIST.get(&cgroup_id).is_some() {
         return Ok(0);
     }
 
@@ -125,94 +144,118 @@ unsafe fn emit_file_event(ctx: &TracePointContext, kind: EventKind) -> Result<u3
     };
 
     let _ = bpf_get_current_comm(&mut event.command);
-    let _ = ctx.read_at(24, &mut event.path);
 
+    // Read filename (offset varies by syscall)
+    let offset = match kind {
+        EventKind::Open => 24,
+        EventKind::Mmap => 16,
+        EventKind::Mprotect => 16,
+        _ => 16,
+    };
+    let _ = ctx.read_at(offset, &mut event.path);
+
+    // Track library loading for vulnerability correlation
+    if kind == EventKind::Mmap && is_shared_library(&event.path) {
+        track_library_load(pid_tgid as u32, &event.path)?;
+    }
+
+    // File integrity monitoring
+    if should_monitor_file(&event.path) {
+        update_file_cache(&event.path);
+    }
+
+    // Emit event
     if let Some(mut slot) = FILE_EVENTS.reserve::<FileEvent>(0) {
         slot.write(event);
         slot.submit(0);
     }
 
-    // Track file access for integrity monitoring
-    let path_hash = hash_path(&event.path);
-    if let Some(entry) = unsafe { FILE_CACHE.get_mut(&path_hash) } {
-        entry.last_access_ns = event.timestamp_ns;
-        entry.access_count += 1;
-    }
+    // Update stats
+    update_cgroup_stats(cgroup_id, SyscallType::File);
 
     Ok(0)
 }
 
-#[kprobe(name = "scanner_tcp_connect")]
-pub fn scanner_tcp_connect(ctx: KProbeContext) -> u32 {
-    match unsafe { emit_connect(&ctx, EventKind::Connect) } {
+// ───────────────────────────────────────────────────────────────────────────
+// 3. NETWORK MONITORING (Kprobes)
+// ───────────────────────────────────────────────────────────────────────────
+
+#[kprobe(name = "tcp_v4_connect")]
+pub fn trace_tcp_connect(ctx: KProbeContext) -> u32 {
+    match unsafe { try_tcp_connect(&ctx) } {
         Ok(ret) => ret,
         Err(_) => 0,
     }
 }
 
-#[kprobe(name = "scanner_tcp_connect_v6")]
-pub fn scanner_tcp_connect_v6(ctx: KProbeContext) -> u32 {
-    match unsafe { emit_connect_v6(&ctx, EventKind::Connect) } {
+#[kprobe(name = "tcp_v6_connect")]
+pub fn trace_tcp_connect_v6(ctx: KProbeContext) -> u32 {
+    match unsafe { try_tcp_connect_v6(&ctx) } {
         Ok(ret) => ret,
         Err(_) => 0,
     }
 }
 
-#[kprobe(name = "scanner_inet_bind")]
-pub fn scanner_inet_bind(ctx: KProbeContext) -> u32 {
-    match unsafe { emit_bind(&ctx, EventKind::Bind) } {
+#[kprobe(name = "tcp_close")]
+pub fn trace_tcp_close(ctx: KProbeContext) -> u32 {
+    match unsafe { try_tcp_close(&ctx) } {
         Ok(ret) => ret,
         Err(_) => 0,
     }
 }
 
-#[kprobe(name = "scanner_inet_bind_v6")]
-pub fn scanner_inet_bind_v6(ctx: KProbeContext) -> u32 {
-    match unsafe { emit_bind_v6(&ctx, EventKind::Bind) } {
+#[kprobe(name = "inet_bind")]
+pub fn trace_bind(ctx: KProbeContext) -> u32 {
+    match unsafe { try_bind(&ctx) } {
         Ok(ret) => ret,
         Err(_) => 0,
     }
 }
 
-#[kprobe(name = "scanner_tcp_close")]
-pub fn scanner_tcp_close(ctx: KProbeContext) -> u32 {
-    match unsafe { emit_net_event(&ctx, EventKind::Close) } {
+#[kprobe(name = "udp_sendmsg")]
+pub fn trace_udp_send(ctx: KProbeContext) -> u32 {
+    match unsafe { try_udp(&ctx, EventKind::UdpSend) } {
         Ok(ret) => ret,
         Err(_) => 0,
     }
 }
 
-#[kprobe(name = "scanner_udp_sendmsg")]
-pub fn scanner_udp_sendmsg(ctx: KProbeContext) -> u32 {
-    match unsafe { emit_net_event(&ctx, EventKind::UdpSend) } {
+#[kprobe(name = "udp_recvmsg")]
+pub fn trace_udp_recv(ctx: KProbeContext) -> u32 {
+    match unsafe { try_udp(&ctx, EventKind::UdpRecv) } {
         Ok(ret) => ret,
         Err(_) => 0,
     }
 }
 
-#[kprobe(name = "scanner_udp_recvmsg")]
-pub fn scanner_udp_recvmsg(ctx: KProbeContext) -> u32 {
-    match unsafe { emit_net_event(&ctx, EventKind::UdpRecv) } {
-        Ok(ret) => ret,
-        Err(_) => 0,
-    }
-}
-
-unsafe fn emit_connect(ctx: &KProbeContext, kind: EventKind) -> Result<u32, i64> {
+unsafe fn try_tcp_connect(ctx: &KProbeContext) -> Result<u32, i64> {
     let pid_tgid = bpf_get_current_pid_tgid();
     let cgroup_id = bpf_get_current_cgroup_id();
 
-    if let Some(_) = ALLOWLIST.get(&cgroup_id) {
+    if ALLOWLIST.get(&cgroup_id).is_some() {
         return Ok(0);
     }
 
     let sock: *const sock = ctx.arg(0).ok_or(1i64)?;
-    let sk_common = &(*sock).__bindgen_anon_1.__bindgen_anon_1;
+    let sk_common = &(*sock).__sk_common;
 
-    // Check against blocked IPs
     let daddr = sk_common.skc_daddr;
-    if let Some(_) = BLOCKED_IPS.get(&daddr) {
-        return Ok(1); // Block connection
+
+    // Check against threat intelligence IPs
+    if THREAT_INTEL_IPS.get(&daddr).is_some() {
+        warn!(
+            "Connection to malicious IP: {}.{}.{}.{}",
+            (daddr >> 24) & 0xFF,
+            (daddr >> 16) & 0xFF,
+            (daddr >> 8) & 0xFF,
+            daddr & 0xFF
+        );
+        log_security_event(cgroup_id, SecurityEventType::MaliciousConnection);
+    }
+
+    // Block if in denylist
+    if BLOCKED_IPS.get(&daddr).is_some() {
+        return Ok(1); // Block
     }
 
     let event = NetEvent {
@@ -225,66 +268,54 @@ unsafe fn emit_connect(ctx: &KProbeContext, kind: EventKind) -> Result<u32, i64>
         sport: sk_common.skc_num,
         dport: u16::from_be(sk_common.skc_dport),
         family: sk_common.skc_family,
-        protocol: sk_common.skc_protocol,
-        kind,
-    };
-
-    if let Some(mut slot) = NET_EVENTS.reserve::<NetEvent>(0) {
-        slot.write(event);
-        slot.submit(0);
-    }
-
-    // Update connection tracking
-    if let Some(conn) = unsafe { CONNECTIONS.get_mut(&conn_key(&event)) } {
-        conn.state = 1; // ESTABLISHED
-        conn.last_activity_ns = event.timestamp_ns;
-    }
-
-    Ok(0)
-}
-
-unsafe fn emit_connect_v6(ctx: &KProbeContext, kind: EventKind) -> Result<u32, i64> {
-    let pid_tgid = bpf_get_current_pid_tgid();
-    let cgroup_id = bpf_get_current_cgroup_id();
-
-    if let Some(_) = ALLOWLIST.get(&cgroup_id) {
-        return Ok(0);
-    }
-
-    let sock: *const sock = ctx.arg(0).ok_or(1i64)?;
-
-    let event = NetEvent {
-        timestamp_ns: bpf_ktime_get_ns(),
-        pid: pid_tgid as u32,
-        tgid: (pid_tgid >> 32) as u32,
-        cgroup_id,
-        saddr: 0, // IPv6 not fully supported in this version
-        daddr: 0,
-        sport: 0,
-        dport: 0,
-        family: 10,  // AF_INET6
         protocol: 6, // TCP
-        kind,
+        kind: EventKind::Connect,
     };
 
+    // Track connection
+    let conn_key = ((event.saddr as u64) << 32) | (event.sport as u64);
+    let conn_entry = ConnectionEntry {
+        saddr: event.saddr,
+        daddr: event.daddr,
+        sport: event.sport,
+        dport: event.dport,
+        state: CONN_ESTABLISHED,
+        created_ns: event.timestamp_ns,
+        last_activity_ns: event.timestamp_ns,
+    };
+    let _ = CONNECTIONS.insert(&conn_key, &conn_entry, 0);
+
+    // Emit event
     if let Some(mut slot) = NET_EVENTS.reserve::<NetEvent>(0) {
         slot.write(event);
         slot.submit(0);
     }
 
+    update_cgroup_stats(cgroup_id, SyscallType::Network);
     Ok(0)
 }
 
-unsafe fn emit_bind(ctx: &KProbeContext, kind: EventKind) -> Result<u32, i64> {
+unsafe fn try_tcp_connect_v6(ctx: &KProbeContext) -> Result<u32, i64> {
+    // IPv6 support (simplified - full impl would handle v6 addrs)
+    try_tcp_connect(ctx)
+}
+
+unsafe fn try_tcp_close(ctx: &KProbeContext) -> Result<u32, i64> {
+    // Cleanup connection tracking
+    let sock: *const sock = ctx.arg(0).ok_or(1i64)?;
+    let sk_common = &(*sock).__sk_common;
+
+    let conn_key = ((sk_common.skc_rcv_saddr as u64) << 32) | (sk_common.skc_num as u64);
+    let _ = CONNECTIONS.remove(&conn_key);
+
+    Ok(0)
+}
+
+unsafe fn try_bind(ctx: &KProbeContext) -> Result<u32, i64> {
     let pid_tgid = bpf_get_current_pid_tgid();
     let cgroup_id = bpf_get_current_cgroup_id();
-
-    if let Some(_) = ALLOWLIST.get(&cgroup_id) {
-        return Ok(0);
-    }
-
     let sock: *const sock = ctx.arg(0).ok_or(1i64)?;
-    let sk_common = &(*sock).__bindgen_anon_1.__bindgen_anon_1;
+    let sk_common = &(*sock).__sk_common;
 
     let event = NetEvent {
         timestamp_ns: bpf_ktime_get_ns(),
@@ -296,8 +327,8 @@ unsafe fn emit_bind(ctx: &KProbeContext, kind: EventKind) -> Result<u32, i64> {
         sport: sk_common.skc_num,
         dport: 0,
         family: sk_common.skc_family,
-        protocol: sk_common.skc_protocol,
-        kind,
+        protocol: 6,
+        kind: EventKind::Bind,
     };
 
     if let Some(mut slot) = NET_EVENTS.reserve::<NetEvent>(0) {
@@ -308,17 +339,9 @@ unsafe fn emit_bind(ctx: &KProbeContext, kind: EventKind) -> Result<u32, i64> {
     Ok(0)
 }
 
-unsafe fn emit_bind_v6(ctx: &KProbeContext, kind: EventKind) -> Result<u32, i64> {
-    emit_connect_v6(ctx, kind)
-}
-
-unsafe fn emit_net_event(_ctx: &KProbeContext, kind: EventKind) -> Result<u32, i64> {
+unsafe fn try_udp(ctx: &KProbeContext, kind: EventKind) -> Result<u32, i64> {
     let pid_tgid = bpf_get_current_pid_tgid();
     let cgroup_id = bpf_get_current_cgroup_id();
-
-    if let Some(_) = ALLOWLIST.get(&cgroup_id) {
-        return Ok(0);
-    }
 
     let event = NetEvent {
         timestamp_ns: bpf_ktime_get_ns(),
@@ -342,137 +365,306 @@ unsafe fn emit_net_event(_ctx: &KProbeContext, kind: EventKind) -> Result<u32, i
     Ok(0)
 }
 
-// LSM hooks for security enforcement
+// ───────────────────────────────────────────────────────────────────────────
+// 4. SECURITY ENFORCEMENT (LSM Hooks)
+// ───────────────────────────────────────────────────────────────────────────
+
 #[lsm(hook = "bprm_check_security")]
-pub fn bprm_check_security(ctx: LsmContext) -> i32 {
-    match unsafe { try_bprm_check_security(&ctx) } {
+pub fn lprm_check_security(ctx: LsmContext) -> i32 {
+    match unsafe { try_bprm_check(&ctx) } {
         Ok(ret) => ret,
         Err(ret) => ret,
     }
-}
-
-unsafe fn try_bprm_check_security(_ctx: &LsmContext) -> Result<i32, i32> {
-    let cgroup_id = bpf_get_current_cgroup_id();
-
-    // Check if cgroup is in denylist
-    if let Some(_) = DENYLIST.get(&cgroup_id) {
-        return Err(-1); // Permission denied
-    }
-
-    Ok(0)
 }
 
 #[lsm(hook = "socket_connect")]
-pub fn socket_connect(ctx: LsmContext) -> i32 {
-    match unsafe { try_socket_connect(&ctx) } {
+pub fn lsm_socket_connect(ctx: LsmContext) -> i32 {
+    match unsafe { try_socket_connect_lsm(&ctx) } {
         Ok(ret) => ret,
         Err(ret) => ret,
     }
-}
-
-unsafe fn try_socket_connect(_ctx: &LsmContext) -> Result<i32, i32> {
-    let cgroup_id = bpf_get_current_cgroup_id();
-
-    if let Some(_) = DENYLIST.get(&cgroup_id) {
-        return Err(-1);
-    }
-
-    Ok(0)
-}
-
-#[lsm(hook = "socket_bind")]
-pub fn socket_bind(ctx: LsmContext) -> i32 {
-    match unsafe { try_socket_bind(&ctx) } {
-        Ok(ret) => ret,
-        Err(ret) => ret,
-    }
-}
-
-unsafe fn try_socket_bind(_ctx: &LsmContext) -> Result<i32, i32> {
-    let cgroup_id = bpf_get_current_cgroup_id();
-
-    if let Some(_) = DENYLIST.get(&cgroup_id) {
-        return Err(-1);
-    }
-
-    Ok(0)
 }
 
 #[lsm(hook = "file_open")]
-pub fn file_open(ctx: LsmContext) -> i32 {
-    match unsafe { try_file_open(&ctx) } {
+pub fn lsm_file_open(ctx: LsmContext) -> i32 {
+    match unsafe { try_file_open_lsm(&ctx) } {
         Ok(ret) => ret,
         Err(ret) => ret,
     }
 }
 
-unsafe fn try_file_open(_ctx: &LsmContext) -> Result<i32, i32> {
+unsafe fn try_bprm_check(_ctx: &LsmContext) -> Result<i32, i32> {
     let cgroup_id = bpf_get_current_cgroup_id();
 
-    if let Some(_) = DENYLIST.get(&cgroup_id) {
+    // Check denylist
+    if DENYLIST.get(&cgroup_id).is_some() {
+        return Err(-1); // EPERM
+    }
+
+    // Check seccomp-style policy
+    if let Some(syscalls) = CGROUP_SYSCALLS.get(&cgroup_id) {
+        if (*syscalls & SYSCALL_EXECVE) == 0 {
+            return Err(-1); // exec not allowed
+        }
+    }
+
+    Ok(0)
+}
+
+unsafe fn try_socket_connect_lsm(_ctx: &LsmContext) -> Result<i32, i32> {
+    let cgroup_id = bpf_get_current_cgroup_id();
+
+    if DENYLIST.get(&cgroup_id).is_some() {
         return Err(-1);
     }
 
     Ok(0)
 }
 
-// XDP program for traffic filtering
-#[xdp]
-pub fn scanner_xdp_filter(ctx: XdpContext) -> u32 {
-    match unsafe { try_xdp_filter(&ctx) } {
+unsafe fn try_file_open_lsm(_ctx: &LsmContext) -> Result<i32, i32> {
+    let cgroup_id = bpf_get_current_cgroup_id();
+
+    if DENYLIST.get(&cgroup_id).is_some() {
+        return Err(-1);
+    }
+
+    Ok(0)
+}
+
+// ───────────────────────────────────────────────────────────────────────────
+// 5. PACKET FILTERING (XDP)
+// ───────────────────────────────────────────────────────────────────────────
+
+#[xdp(name = "scanner_xdp")]
+pub fn scanner_xdp(ctx: XdpContext) -> u32 {
+    match unsafe { try_xdp(&ctx) } {
         Ok(ret) => ret,
-        Err(_) => xdp::XDP_PASS,
+        Err(_) => XDP_PASS,
     }
 }
 
-unsafe fn try_xdp_filter(ctx: &XdpContext) -> Result<u32, i64> {
+unsafe fn try_xdp(ctx: &XdpContext) -> Result<u32, i64> {
     let data = ctx.data();
     let data_end = ctx.data_end();
 
     if data + 20 > data_end {
-        return Ok(xdp::XDP_PASS);
+        return Ok(XDP_PASS);
     }
 
-    // Check IP header
     let ip_header = data as *const u8;
     let version_ihl = *ip_header;
     let version = version_ihl >> 4;
 
     if version != 4 {
-        return Ok(xdp::XDP_PASS);
+        return Ok(XDP_PASS);
+    }
+
+    // Parse IP header
+    let ihl = (version_ihl & 0x0F) * 4;
+    if data + ihl as usize > data_end {
+        return Ok(XDP_PASS);
     }
 
     let src_ip = u32::from_be(*((ip_header as *const u32).add(3)));
+    let _dst_ip = u32::from_be(*((ip_header as *const u32).add(4)));
 
-    // Check if source IP is blocked
-    if let Some(_) = XDP_BLOCKED_IPS.get(&src_ip) {
-        return Ok(xdp::XDP_DROP);
+    // Check blocked IPs
+    if XDP_BLOCKED_IPS.get(&src_ip).is_some() {
+        info!("XDP: Dropping packet from blocked IP");
+        return Ok(XDP_DROP);
     }
 
-    Ok(xdp::XDP_PASS)
+    // Check threat intel
+    if THREAT_INTEL_IPS.get(&src_ip).is_some() {
+        warn!("XDP: Threat intel match");
+        return Ok(XDP_DROP);
+    }
+
+    Ok(XDP_PASS)
 }
 
-// Helper functions
-unsafe fn hash_path(path: &[u8]) -> u32 {
-    let mut hash: u32 = 5381;
-    for byte in path.iter() {
-        if *byte == 0 {
+// ───────────────────────────────────────────────────────────────────────────
+// HELPER FUNCTIONS
+// ───────────────────────────────────────────────────────────────────────────
+
+unsafe fn is_shared_library(path: &[u8]) -> bool {
+    let len = path_len(path);
+    if len < 3 {
+        return false;
+    }
+    // Check for .so
+    path[len - 3] == b'.' && path[len - 2] == b's' && path[len - 1] == b'o'
+}
+
+unsafe fn path_len(path: &[u8]) -> usize {
+    for (i, &byte) in path.iter().enumerate() {
+        if byte == 0 {
+            return i;
+        }
+    }
+    path.len()
+}
+
+unsafe fn is_suspicious_command(cmd: &[u8]) -> bool {
+    // Check for common attack patterns
+    let patterns: [[u8; 8]; 3] = [
+        *b"nc -e \0\0",     // Netcat backdoor
+        *b"bash -i\0\0",    // Interactive bash
+        *b"python\0\0\0\0", // Python reverse shell
+    ];
+
+    for pattern in &patterns {
+        if starts_with(cmd, pattern) {
+            return true;
+        }
+    }
+    false
+}
+
+unsafe fn starts_with(s: &[u8], prefix: &[u8]) -> bool {
+    for (i, &b) in prefix.iter().enumerate() {
+        if b == 0 {
             break;
         }
-        hash = ((hash << 5) + hash) + (*byte as u32);
+        if i >= s.len() || s[i] != b {
+            return false;
+        }
+    }
+    true
+}
+
+unsafe fn should_monitor_file(path: &[u8]) -> bool {
+    // Monitor sensitive paths
+    let sensitive: &[[u8]] = &[b"/etc/passwd", b"/etc/shadow", b"/etc/ssl", b"/usr/bin"];
+
+    for s in sensitive {
+        if starts_with(path, s) {
+            return true;
+        }
+    }
+    false
+}
+
+unsafe fn update_file_cache(path: &[u8]) {
+    let hash = hash_path(path);
+    let now = bpf_ktime_get_ns();
+
+    if let Some(entry) = FILE_CACHE.get_mut(&hash) {
+        entry.last_access_ns = now;
+        entry.access_count += 1;
+    } else {
+        let entry = FileCacheEntry {
+            path_hash: hash,
+            first_seen_ns: now,
+            last_access_ns: now,
+            access_count: 1,
+            modified: 0,
+        };
+        let _ = FILE_CACHE.insert(&hash, &entry, 0);
+    }
+}
+
+unsafe fn track_library_load(pid: u32, path: &[u8]) -> Result<(), i64> {
+    let hash = hash_path(path);
+    let entry = LibraryMapping {
+        pid,
+        lib_hash: hash,
+        loaded_ns: bpf_ktime_get_ns(),
+    };
+    let _ = LIBRARY_MAP.insert(&pid, &entry, 0);
+    Ok(())
+}
+
+unsafe fn update_cgroup_stats(cgroup_id: u64, syscall_type: SyscallType) {
+    if let Some(stats) = CGROUP_STATS.get_mut(&cgroup_id) {
+        stats.last_seen_ns = bpf_ktime_get_ns();
+        match syscall_type {
+            SyscallType::Exec => stats.exec_count += 1,
+            SyscallType::File => stats.file_open_count += 1,
+            SyscallType::Network => stats.connect_count += 1,
+        }
+    } else {
+        let stats = CgroupStats {
+            cgroup_id,
+            exec_count: if syscall_type == SyscallType::Exec {
+                1
+            } else {
+                0
+            },
+            file_open_count: if syscall_type == SyscallType::File {
+                1
+            } else {
+                0
+            },
+            mmap_count: 0,
+            connect_count: if syscall_type == SyscallType::Network {
+                1
+            } else {
+                0
+            },
+            bind_count: 0,
+            first_seen_ns: bpf_ktime_get_ns(),
+            last_seen_ns: bpf_ktime_get_ns(),
+        };
+        let _ = CGROUP_STATS.insert(&cgroup_id, &stats, 0);
+    }
+}
+
+unsafe fn log_security_event(cgroup_id: u64, event_type: SecurityEventType) {
+    let pid_tgid = bpf_get_current_pid_tgid();
+    let event = SecurityEvent {
+        timestamp_ns: bpf_ktime_get_ns(),
+        pid: pid_tgid as u32,
+        tgid: (pid_tgid >> 32) as u32,
+        cgroup_id,
+        event_type: event_type as u32,
+        severity: 2, // High
+    };
+
+    if let Some(mut slot) = SECURITY_EVENTS.reserve::<SecurityEvent>(0) {
+        slot.write(event);
+        slot.submit(0);
+    }
+}
+
+unsafe fn hash_path(path: &[u8]) -> u32 {
+    let mut hash: u32 = 5381;
+    for &byte in path.iter() {
+        if byte == 0 {
+            break;
+        }
+        hash = ((hash << 5) + hash) + (byte as u32);
     }
     hash
 }
 
-fn conn_key(event: &NetEvent) -> u64 {
-    ((event.saddr as u64) << 32) | (event.sport as u64)
+enum SyscallType {
+    Exec,
+    File,
+    Network,
 }
+
+enum SecurityEventType {
+    SuspiciousExec = 1,
+    MaliciousConnection = 2,
+    FileTampering = 3,
+    PolicyViolation = 4,
+}
+
+// Constants
+const XDP_ABORTED: u32 = 0;
+const XDP_DROP: u32 = 1;
+const XDP_PASS: u32 = 2;
+const XDP_TX: u32 = 3;
+const XDP_REDIRECT: u32 = 4;
+
+const CONN_ESTABLISHED: u8 = 1;
+
+const SYSCALL_EXECVE: u64 = 1 << 0;
 
 #[panic_handler]
 fn panic(_info: &core::panic::PanicInfo) -> ! {
-    loop {
-        core::hint::spin_loop();
-    }
+    loop {}
 }
 
 #[no_mangle]
