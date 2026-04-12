@@ -177,6 +177,13 @@ impl From<Vulnerability> for CveRecord {
         CveRecord {
             id: v.cve,
             cvss: v.cvss_score,
+            severity: match v.severity {
+                Severity::Critical => scanner_common::Severity::Critical,
+                Severity::High => scanner_common::Severity::High,
+                Severity::Medium => scanner_common::Severity::Medium,
+                Severity::Low => scanner_common::Severity::Low,
+                Severity::Unknown => scanner_common::Severity::Low,
+            },
             description: Some(v.description),
             cwe: None,
         }

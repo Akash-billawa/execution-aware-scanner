@@ -32,7 +32,7 @@ pub enum EvidenceType {
     FunctionCall { function: String },
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub enum ConfidenceLevel {
     High,   // Direct evidence (e.g., exploit payload observed)
     Medium, // Strong correlation (e.g., vulnerable function called)

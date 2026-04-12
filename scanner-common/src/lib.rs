@@ -13,6 +13,11 @@ pub enum EventKind {
     Open = 3,
     Connect = 4,
     Bind = 5,
+    Close = 6,
+    Read = 7,
+    Write = 8,
+    Mprotect = 9,
+    SecurityDeny = 10,
 }
 
 #[repr(C)]
