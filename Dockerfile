@@ -17,7 +17,8 @@ RUN cargo +nightly install bpf-linker
 RUN cargo +nightly build -p scanner-ebpf \
     --release \
     --target bpfel-unknown-none \
-    -Z build-std=core
+    -Z build-std=core \
+    && ls -la /src/target/bpfel-unknown-none/release/
 
 # Build agent (stable)
 RUN cargo build --release -p scanner-agent --no-default-features
@@ -31,6 +32,7 @@ RUN apt-get update \
 
 # Copy binaries
 COPY --from=builder /src/target/release/scanner-agent /usr/local/bin/scanner-agent
+# Copy eBPF object - bpf-linker creates scanner-ebpf file
 COPY --from=builder /src/target/bpfel-unknown-none/release/scanner-ebpf /opt/scanner/scanner-ebpf.o
 
 # Copy SBOMs and data
