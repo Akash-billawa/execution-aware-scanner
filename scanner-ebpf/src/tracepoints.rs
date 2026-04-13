@@ -78,8 +78,8 @@ unsafe fn try_execve(ctx: &TracePointContext) -> u32 {
     let now = bpf_ktime_get_ns();
     let key = pid as u64;
     let key_ptr = &key;
-    // Check last event time
-    let should_emit = if let Some(ptr) = LAST_EVENT.get_ptr(key_ptr) {
+    // Check last event time - SAFETY: eBPF map operations are unsafe
+    let should_emit = if let Some(ptr) = unsafe { LAST_EVENT.get_ptr(key_ptr) } {
         let last = *ptr;
         now - last > 1_000_000_000 // 1 second
     } else {
@@ -90,8 +90,8 @@ unsafe fn try_execve(ctx: &TracePointContext) -> u32 {
         return 0;
     }
 
-    // Update last event time
-    let _ = LAST_EVENT.insert(key_ptr, &now, 0);
+    // Update last event time - SAFETY: eBPF map operations are unsafe
+    let _ = unsafe { LAST_EVENT.insert(key_ptr, &now, 0) };
 
     // Get command name
     let command = match bpf_get_current_comm() {

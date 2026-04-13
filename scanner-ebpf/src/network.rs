@@ -87,11 +87,11 @@ pub unsafe fn track_tcp_connect(
         created_ns: bpf_ktime_get_ns(),
     };
     let conn_ptr = &conn;
-    let _ = CONNECTIONS.insert(key_ptr, conn_ptr, 0);
+    let _ = unsafe { CONNECTIONS.insert(key_ptr, conn_ptr, 0) };
 
     // Initialize or update process network activity
     let pid_ptr = &pid;
-    if CONNECTIONS.get_ptr(key_ptr).is_none() {
+    if unsafe { CONNECTIONS.get_ptr(key_ptr).is_none() } {
         let activity = NetworkActivity {
             pid,
             saddr,
@@ -105,7 +105,7 @@ pub unsafe fn track_tcp_connect(
             protocol,
         };
         let activity_ptr = &activity;
-        let _ = PROCESS_NETWORK.insert(pid_ptr, activity_ptr, 0);
+        let _ = unsafe { PROCESS_NETWORK.insert(pid_ptr, activity_ptr, 0) };
     }
 }
 
