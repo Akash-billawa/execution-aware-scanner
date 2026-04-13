@@ -600,7 +600,7 @@ pub struct GraphMetadata {
 }
 
 impl GraphSnapshot {
-    pub fn from_graph(graph: &RuntimeAttackGraph) -> Self {
+    pub fn from_graph(_graph: &RuntimeAttackGraph) -> Self {
         // This would need to expose graph internals
         // For now, return empty placeholder
         Self {

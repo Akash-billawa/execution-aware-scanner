@@ -27,6 +27,22 @@ pub struct NetworkActivity {
     pub protocol: u8,
 }
 
+/// Process network stats: PID -> NetworkActivity
+#[map(name = "PROCESS_NETWORK")]
+static mut PROCESS_NETWORK: HashMap<u32, NetworkActivity> = HashMap::with_max_entries(10000, 0);
+
+/// Active connections: conn_key -> ConnectionInfo
+#[map(name = "CONNECTIONS")]
+static mut CONNECTIONS: HashMap<u64, ConnectionInfo> = HashMap::with_max_entries(50000, 0);
+
+/// Threat IP scores: IP -> threat_score
+#[map(name = "THREAT_IPS")]
+static mut THREAT_IPS: HashMap<u32, u32> = HashMap::with_max_entries(100000, 0);
+
+/// Suspicious connections count
+#[map(name = "SUSPICIOUS_CONNS")]
+static mut SUSPICIOUS_CONNS: HashMap<u64, u32> = HashMap::with_max_entries(10000, 0);
+
 /// Connection info
 #[repr(C)]
 #[derive(Clone, Copy)]
@@ -39,28 +55,12 @@ pub struct ConnectionInfo {
     pub created_ns: u64,
 }
 
-/// Process network stats: PID -> NetworkActivity
-#[map(name = "PROCESS_NETWORK")]
-pub static mut PROCESS_NETWORK: HashMap<u32, NetworkActivity> = HashMap::with_max_entries(10000, 0);
-
-/// Active connections: conn_key -> ConnectionInfo
-#[map(name = "CONNECTIONS")]
-pub static mut CONNECTIONS: HashMap<u64, ConnectionInfo> = HashMap::with_max_entries(50000, 0);
-
-/// Threat IP scores: IP -> threat_score
-#[map(name = "THREAT_IPS")]
-pub static mut THREAT_IPS: HashMap<u32, u32> = HashMap::with_max_entries(100000, 0);
-
-/// Suspicious connections count
-#[map(name = "SUSPICIOUS_CONNS")]
-pub static mut SUSPICIOUS_CONNS: HashMap<u64, u32> = HashMap::with_max_entries(10000, 0);
-
 // Connection states
 pub const CONN_STATE_NEW: u8 = 0;
 pub const CONN_STATE_ESTABLISHED: u8 = 1;
 pub const CONN_STATE_CLOSING: u8 = 2;
 
-/// Generate connection key from addresses and ports
+/// Generate connection key
 #[inline]
 pub fn conn_key(saddr: u32, sport: u16, daddr: u32, dport: u16) -> u64 {
     ((saddr as u64) << 48) | ((sport as u64) << 32) | ((daddr as u64) << 16) | (dport as u64)
@@ -76,6 +76,7 @@ pub unsafe fn track_tcp_connect(
     protocol: u8,
 ) {
     let key = conn_key(saddr, sport, daddr, dport);
+    let key_ptr = &key;
 
     let conn = ConnectionInfo {
         saddr,
@@ -85,13 +86,12 @@ pub unsafe fn track_tcp_connect(
         state: CONN_STATE_ESTABLISHED,
         created_ns: bpf_ktime_get_ns(),
     };
-
-    let _ = CONNECTIONS.insert(&key, &conn, 0);
+    let conn_ptr = &conn;
+    let _ = CONNECTIONS.insert(key_ptr, conn_ptr, 0);
 
     // Initialize or update process network activity
-    if let Some(activity) = PROCESS_NETWORK.get_ptr_mut(&pid) {
-        (*activity).last_activity_ns = bpf_ktime_get_ns();
-    } else {
+    let pid_ptr = &pid;
+    if CONNECTIONS.get_ptr(key_ptr).is_none() {
         let activity = NetworkActivity {
             pid,
             saddr,
@@ -104,18 +104,20 @@ pub unsafe fn track_tcp_connect(
             last_activity_ns: bpf_ktime_get_ns(),
             protocol,
         };
-        let _ = PROCESS_NETWORK.insert(&pid, &activity, 0);
+        let activity_ptr = &activity;
+        let _ = PROCESS_NETWORK.insert(pid_ptr, activity_ptr, 0);
     }
 }
 
 /// Update data transfer stats
 pub unsafe fn update_data_transfer(pid: u32, bytes: u64, is_send: bool) {
-    if let Some(activity) = PROCESS_NETWORK.get_ptr_mut(&pid) {
-        (*activity).last_activity_ns = bpf_ktime_get_ns();
+    let pid_ptr = &pid;
+    if let Some(ptr) = PROCESS_NETWORK.get_ptr_mut(pid_ptr) {
+        (*ptr).last_activity_ns = bpf_ktime_get_ns();
         if is_send {
-            (*activity).bytes_sent += bytes;
+            (*ptr).bytes_sent += bytes;
         } else {
-            (*activity).bytes_recv += bytes;
+            (*ptr).bytes_recv += bytes;
         }
     }
 }
@@ -123,7 +125,9 @@ pub unsafe fn update_data_transfer(pid: u32, bytes: u64, is_send: bool) {
 /// Check for data exfiltration patterns
 #[inline]
 pub unsafe fn check_exfiltration(pid: u32) -> bool {
-    if let Some(activity) = PROCESS_NETWORK.get(&pid) {
+    let pid_ptr = &pid;
+    if let Some(ptr) = PROCESS_NETWORK.get_ptr(pid_ptr) {
+        let activity = *ptr;
         let total_sent = activity.bytes_sent;
         let total_recv = activity.bytes_recv;
 
@@ -143,12 +147,21 @@ pub unsafe fn check_exfiltration(pid: u32) -> bool {
 /// Check if IP is in threat intelligence
 #[inline]
 pub unsafe fn is_threat_ip(ip: u32) -> bool {
-    THREAT_IPS.get(&ip).is_some()
+    let ip_ptr = &ip;
+    THREAT_IPS.get_ptr(ip_ptr).is_some()
 }
 
 /// Mark connection as suspicious
 pub unsafe fn mark_suspicious(saddr: u32, sport: u16, daddr: u32, dport: u16) {
     let key = conn_key(saddr, sport, daddr, dport);
-    let count = SUSPICIOUS_CONNS.get(&key).copied().unwrap_or(0) + 1;
-    let _ = SUSPICIOUS_CONNS.insert(&key, &count, 0);
+    let key_ptr = &key;
+
+    let count = if let Some(ptr) = SUSPICIOUS_CONNS.get_ptr_mut(key_ptr) {
+        *ptr + 1
+    } else {
+        1
+    };
+
+    let count_ptr = &count;
+    let _ = SUSPICIOUS_CONNS.insert(key_ptr, count_ptr, 0);
 }

@@ -5,25 +5,38 @@ use aya_ebpf::{
         bpf_get_current_cgroup_id, bpf_get_current_comm, bpf_get_current_pid_tgid,
         bpf_get_current_uid_gid, bpf_ktime_get_ns,
     },
-    macros::tracepoint,
+    macros::{map, tracepoint},
+    maps::{HashMap, PerfEventArray},
     programs::TracePointContext,
 };
 use aya_log_ebpf::info;
+
+/// Event output channel
+#[map(name = "EVENTS")]
+static mut EVENTS: PerfEventArray<ExecEvent> = PerfEventArray::new(0);
+
+/// Rate limiting: last event time per PID
+#[map(name = "LAST_EVENT")]
+static mut LAST_EVENT: HashMap<u64, u64> = HashMap::with_max_entries(100000, 0);
+
+/// Process execution event
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub struct ExecEvent {
+    pub timestamp_ns: u64,
+    pub pid: u32,
+    pub tgid: u32,
+    pub uid: u32,
+    pub gid: u32,
+    pub cgroup_id: u64,
+    pub command: [u8; 16],
+}
 
 /// Process execution entry
 #[tracepoint(category = "syscalls", name = "sys_enter_execve")]
 pub fn trace_enter_execve(ctx: TracePointContext) -> u32 {
     unsafe {
         try_execve(&ctx);
-    }
-    0
-}
-
-/// Process execution return
-#[tracepoint(category = "syscalls", name = "sys_exit_execve")]
-pub fn trace_exit_execve(ctx: TracePointContext) -> u32 {
-    unsafe {
-        try_execve_return(&ctx);
     }
     0
 }
@@ -61,22 +74,46 @@ unsafe fn try_execve(ctx: &TracePointContext) -> u32 {
     let cgroup_id = bpf_get_current_cgroup_id();
     let pid = pid_tgid as u32;
 
+    // Rate limiting: max 1 event per second per PID
+    let now = bpf_ktime_get_ns();
+    let key = pid as u64;
+    let key_ptr = &key;
+    // Check last event time
+    let should_emit = if let Some(ptr) = LAST_EVENT.get_ptr(key_ptr) {
+        let last = *ptr;
+        now - last > 1_000_000_000 // 1 second
+    } else {
+        true
+    };
+
+    if !should_emit {
+        return 0;
+    }
+
+    // Update last event time
+    let _ = LAST_EVENT.insert(key_ptr, &now, 0);
+
     // Get command name
     let command = match bpf_get_current_comm() {
         Ok(comm) => comm,
         Err(_) => [0u8; 16],
     };
 
-    // Log process execution
-    info!(ctx, "EXEC: pid={}", pid);
-    0
-}
+    // Emit structured event
+    let event = ExecEvent {
+        timestamp_ns: now,
+        pid,
+        tgid: (pid_tgid >> 32) as u32,
+        uid: uid_gid as u32,
+        gid: (uid_gid >> 32) as u32,
+        cgroup_id,
+        command,
+    };
 
-unsafe fn try_execve_return(ctx: &TracePointContext) -> u32 {
-    let pid_tgid = bpf_get_current_pid_tgid();
-    let pid = pid_tgid as u32;
+    EVENTS.output(&event, 0);
 
-    info!(ctx, "EXEC_RET: pid={}", pid);
+    // Log for debugging
+    info!(ctx, "EXEC: pid={} uid={}", pid, event.uid);
     0
 }
 

@@ -775,7 +775,7 @@ impl RuntimeAttackGraph {
 
     /// Get paths that meet enforcement criteria
     pub fn get_enforceable_paths(&self, findings: &[Finding]) -> Vec<&AttackPath> {
-        let paths: Vec<_> = findings
+        let _paths: Vec<_> = findings
             .iter()
             .filter(|f| f.signal.runtime == RuntimeDisposition::Reachable)
             .map(|f| self.build_path_for_finding(f))

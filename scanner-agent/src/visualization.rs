@@ -216,7 +216,7 @@ impl GraphExporter {
     }
 
     /// Export to Grafana node graph format
-    pub fn export_grafana(graph: &RuntimeAttackGraph, paths: &[AttackPath]) -> String {
+    pub fn export_grafana(graph: &RuntimeAttackGraph, _paths: &[AttackPath]) -> String {
         let mut nodes: Vec<serde_json::Value> = Vec::new();
         let mut edges: Vec<serde_json::Value> = Vec::new();
 

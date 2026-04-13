@@ -510,7 +510,7 @@ fn is_sensitive_path(path: &str) -> bool {
     sensitive_paths.iter().any(|p| path.starts_with(p))
 }
 
-fn is_suspicious_destination(addr: u32, port: u16) -> bool {
+    fn is_suspicious_destination(_addr: u32, port: u16) -> bool {
     // Check for common C2 ports
     let suspicious_ports: BTreeSet<u16> = [
         4444, 5555, 6666, 8888, 9999,  // Common malware ports

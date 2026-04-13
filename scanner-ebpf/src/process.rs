@@ -25,11 +25,11 @@ pub struct ProcessInfo {
 
 /// Process context map: PID -> ProcessInfo
 #[map(name = "PROCESS_CONTEXT")]
-pub static mut PROCESS_CONTEXT: HashMap<u32, ProcessInfo> = HashMap::with_max_entries(10240, 0);
+static mut PROCESS_CONTEXT: HashMap<u32, ProcessInfo> = HashMap::with_max_entries(10240, 0);
 
 /// Process parent tracking: PID -> Parent PID
 #[map(name = "PROCESS_PARENT")]
-pub static mut PROCESS_PARENT: HashMap<u32, u32> = HashMap::with_max_entries(10240, 0);
+static mut PROCESS_PARENT: HashMap<u32, u32> = HashMap::with_max_entries(10240, 0);
 
 /// Track process creation with rich metadata
 pub unsafe fn track_process(pid: u32, tgid: u32, ppid: u32) {
@@ -53,21 +53,26 @@ pub unsafe fn track_process(pid: u32, tgid: u32, ppid: u32) {
         command,
     };
 
-    // Store process context
-    let _ = PROCESS_CONTEXT.insert(&pid, &info, 0);
+    // Store using pointer-safe pattern
+    let key_ptr = &pid;
+    let value_ptr = &info;
+    let _ = PROCESS_CONTEXT.insert(key_ptr, value_ptr, 0);
 
     // Track parent relationship
-    let _ = PROCESS_PARENT.insert(&pid, &ppid, 0);
+    let ppid_ptr = &ppid;
+    let _ = PROCESS_PARENT.insert(key_ptr, ppid_ptr, 0);
 }
 
-/// Get process info
-pub unsafe fn get_process_info(pid: u32) -> Option<&'static ProcessInfo> {
-    PROCESS_CONTEXT.get(&pid)
+/// Get process info using pointer-safe pattern
+pub unsafe fn get_process_info(pid: u32) -> Option<ProcessInfo> {
+    let key_ptr = &pid;
+    PROCESS_CONTEXT.get_ptr(key_ptr).map(|ptr| *ptr)
 }
 
 /// Get parent PID
 pub unsafe fn get_parent_pid(pid: u32) -> Option<u32> {
-    PROCESS_PARENT.get(&pid).copied()
+    let key_ptr = &pid;
+    PROCESS_PARENT.get_ptr(key_ptr).map(|ptr| *ptr)
 }
 
 /// Get process ancestry (up to 3 levels)
@@ -76,13 +81,15 @@ pub unsafe fn get_process_ancestry(pid: u32, ancestors: &mut [u32; 3]) -> u32 {
     let mut count = 0u32;
 
     for i in 0..3 {
-        if let Some(ppid) = PROCESS_PARENT.get(&current) {
-            ancestors[i] = *ppid;
+        let key_ptr = &current;
+        if let Some(ppid_ptr) = PROCESS_PARENT.get_ptr(key_ptr) {
+            let ppid = *ppid_ptr;
+            ancestors[i] = ppid;
             count += 1;
-            current = *ppid;
+            current = ppid;
 
             // Stop at init (PID 1) or if we hit a loop
-            if *ppid == 1 || *ppid == pid {
+            if ppid == 1 || ppid == pid {
                 break;
             }
         } else {
