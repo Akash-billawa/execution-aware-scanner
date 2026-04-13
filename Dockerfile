@@ -10,6 +10,9 @@ COPY . .
 RUN rustup toolchain install nightly \
     && rustup component add rust-src --toolchain nightly
 
+# Install bpf-linker required for eBPF compilation
+RUN cargo +nightly install bpf-linker
+
 # Build eBPF with nightly
 RUN cargo +nightly build -p scanner-ebpf \
     --release \
