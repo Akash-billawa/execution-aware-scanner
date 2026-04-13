@@ -82,7 +82,7 @@ impl RuntimeMapper {
         if let Some(process) = self.processes.get_mut(&event.pid) {
             process.loaded_libs.insert(path.clone());
 
-        // End mutable borrow by letting it go out of scope
+            // End mutable borrow by letting it go out of scope
 
             // Check if library has known vulnerabilities
             let vulns = if !self.lib_vulns.contains_key(&path) {

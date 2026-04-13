@@ -5,7 +5,6 @@ use aya_ebpf::{
     macros::kprobe,
     programs::ProbeContext,
 };
-use aya_log_ebpf::info;
 
 /// TCP connect (IPv4)
 #[kprobe(function = "tcp_v4_connect")]
@@ -56,52 +55,26 @@ pub fn trace_udp_recvmsg(ctx: ProbeContext) -> u32 {
     0
 }
 
-unsafe fn try_tcp_connect(ctx: &ProbeContext, family: u16) -> u32 {
-    let pid_tgid = bpf_get_current_pid_tgid();
-    let pid = pid_tgid as u32;
-
-    info!(ctx, "TCP_CONNECT: pid={} family={}", pid, family);
+unsafe fn try_tcp_connect(_ctx: &ProbeContext, _family: u16) -> u32 {
+    let _pid_tgid = bpf_get_current_pid_tgid();
+    // Network event tracking disabled for verifier compatibility
     0
 }
 
-unsafe fn try_tcp_close(ctx: &ProbeContext) -> u32 {
-    let pid_tgid = bpf_get_current_pid_tgid();
-    let pid = pid_tgid as u32;
-
-    info!(ctx, "TCP_CLOSE: pid={}", pid);
+unsafe fn try_tcp_close(_ctx: &ProbeContext) -> u32 {
+    let _pid_tgid = bpf_get_current_pid_tgid();
+    // Network event tracking disabled for verifier compatibility
     0
 }
 
-unsafe fn try_tcp_data(ctx: &ProbeContext, is_send: bool) -> u32 {
-    let pid_tgid = bpf_get_current_pid_tgid();
-    let pid = pid_tgid as u32;
-
-    // Get message size from arg2
-    let size: usize = match ctx.arg(2) {
-        Some(s) => s,
-        None => 0,
-    };
-
-    // Alert on large transfers (>1MB)
-    if size > 1024 * 1024 {
-        let direction = if is_send { "SEND" } else { "RECV" };
-        info!(
-            ctx,
-            "LARGE_TRANSFER: pid={} {} {} bytes", pid, direction, size
-        );
-    }
-
+unsafe fn try_tcp_data(_ctx: &ProbeContext, _is_send: bool) -> u32 {
+    let _pid_tgid = bpf_get_current_pid_tgid();
+    // Network data transfer tracking disabled for verifier compatibility
     0
 }
 
-unsafe fn try_udp_data(ctx: &ProbeContext, is_send: bool) -> u32 {
-    let pid_tgid = bpf_get_current_pid_tgid();
-    let pid = pid_tgid as u32;
-
-    if is_send {
-        info!(ctx, "UDP_SEND: pid={}", pid);
-    } else {
-        info!(ctx, "UDP_RECV: pid={}", pid);
-    }
+unsafe fn try_udp_data(_ctx: &ProbeContext, _is_send: bool) -> u32 {
+    let _pid_tgid = bpf_get_current_pid_tgid();
+    // UDP tracking disabled for verifier compatibility
     0
 }

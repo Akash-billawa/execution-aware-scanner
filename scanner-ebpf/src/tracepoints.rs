@@ -9,7 +9,6 @@ use aya_ebpf::{
     maps::{HashMap, PerfEventArray},
     programs::TracePointContext,
 };
-use aya_log_ebpf::info;
 
 /// Event output channel
 #[map(name = "EVENTS")]
@@ -117,26 +116,20 @@ unsafe fn try_execve(ctx: &TracePointContext) -> u32 {
     0
 }
 
-unsafe fn try_openat(ctx: &TracePointContext) -> u32 {
-    let pid_tgid = bpf_get_current_pid_tgid();
-    let pid = pid_tgid as u32;
-
-    info!(ctx, "OPEN: pid={}", pid);
+unsafe fn try_openat(_ctx: &TracePointContext) -> u32 {
+    let _pid_tgid = bpf_get_current_pid_tgid();
+    // Event logging disabled for verifier compatibility
     0
 }
 
-unsafe fn try_mmap(ctx: &TracePointContext) -> u32 {
-    let pid_tgid = bpf_get_current_pid_tgid();
-    let pid = pid_tgid as u32;
-
-    info!(ctx, "MMAP: pid={}", pid);
+unsafe fn try_mmap(_ctx: &TracePointContext) -> u32 {
+    let _pid_tgid = bpf_get_current_pid_tgid();
+    // Event logging disabled for verifier compatibility
     0
 }
 
-unsafe fn try_mprotect(ctx: &TracePointContext) -> u32 {
-    let pid_tgid = bpf_get_current_pid_tgid();
-    let pid = pid_tgid as u32;
-
-    info!(ctx, "MPROTECT: pid={}", pid);
+unsafe fn try_mprotect(_ctx: &TracePointContext) -> u32 {
+    let _pid_tgid = bpf_get_current_pid_tgid();
+    // Event logging disabled for verifier compatibility
     0
 }
