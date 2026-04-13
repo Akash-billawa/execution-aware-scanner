@@ -109,10 +109,8 @@ unsafe fn try_execve(ctx: &TracePointContext) -> u32 {
         command,
     };
 
-    EVENTS.output(&event, 0);
-
-    // Log for debugging
-    info!(ctx, "EXEC: pid={} uid={}", pid, event.uid);
+    // SAFETY: PerfEventArray output requires context
+    let _ = unsafe { EVENTS.output(ctx, &event, 0) };
     0
 }
 
