@@ -1,0 +1,82 @@
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: execution-aware-scanner
+  namespace: kube-system
+  labels:
+    app.kubernetes.io/name: execution-aware-scanner
+    app.kubernetes.io/version: "0.1.0"
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: execution-aware-scanner
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: execution-aware-scanner
+    spec:
+      hostPID: true
+      hostNetwork: true
+      containers:
+      - name: scanner
+        image: ghcr.io/akash-billawa/execution-aware-scanner:main
+        imagePullPolicy: Always
+        securityContext:
+          capabilities:
+            add:
+              - SYS_ADMIN
+              - SYS_RESOURCE
+              - NET_ADMIN
+              - BPF
+          readOnlyRootFilesystem: true
+          allowPrivilegeEscalation: false
+        ports:
+        - name: metrics
+          containerPort: 9898
+          protocol: TCP
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: metrics
+          initialDelaySeconds: 30
+          periodSeconds: 10
+        readinessProbe:
+          httpGet:
+            path: /ready
+            port: metrics
+          initialDelaySeconds: 5
+          periodSeconds: 5
+        resources:
+          requests:
+            memory: "128Mi"
+            cpu: "100m"
+          limits:
+            memory: "512Mi"
+            cpu: "500m"
+        volumeMounts:
+        - name: debugfs
+          mountPath: /sys/kernel/debug
+          readOnly: true
+        - name: cgroup
+          mountPath: /sys/fs/cgroup
+          readOnly: true
+        - name: ebpf-data
+          mountPath: /var/lib/scanner
+        - name: tmp
+          mountPath: /tmp
+      volumes:
+      - name: debugfs
+        hostPath:
+          path: /sys/kernel/debug
+      - name: cgroup
+        hostPath:
+          path: /sys/fs/cgroup
+      - name: ebpf-data
+        emptyDir: {}
+      - name: tmp
+        emptyDir: {}
+      tolerations:
+      - key: node-role.kubernetes.io/control-plane
+        effect: NoSchedule
+      - key: node-role.kubernetes.io/master
+        effect: NoSchedule
