@@ -32,8 +32,8 @@ RUN apt-get update \
 
 # Copy binaries
 COPY --from=builder /src/target/release/scanner-agent /usr/local/bin/scanner-agent
-# Copy eBPF object - bpf-linker creates scanner-ebpf file
-COPY --from=builder /src/target/bpfel-unknown-none/release/scanner-ebpf /opt/scanner/scanner-ebpf.o
+# Copy eBPF object - bpf-linker creates libscanner_ebpf.so
+COPY --from=builder /src/target/bpfel-unknown-none/release/libscanner_ebpf.so /opt/scanner/scanner-ebpf.o
 
 # Copy SBOMs and data
 COPY examples/sboms /var/lib/scanner/sboms
