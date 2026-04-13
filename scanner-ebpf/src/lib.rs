@@ -6,13 +6,22 @@
 //! Architecture:
 //! - tracepoints.rs: Syscall monitoring (execve, openat, mmap)
 //! - kprobes.rs: Kernel function hooks (tcp_connect, socket operations)
+//! - process.rs: Process context tracking (PID → metadata)
+//! - libraries.rs: Library loading detection (.so tracking)
+//! - network.rs: Network intelligence (connections, transfers)
 
 // Module declarations
 mod kprobes;
+mod libraries;
+mod network;
+mod process;
 mod tracepoints;
 
 // Re-export for use by probe handlers
 pub use kprobes::*;
+pub use libraries::*;
+pub use network::*;
+pub use process::*;
 pub use tracepoints::*;
 
 #[panic_handler]
