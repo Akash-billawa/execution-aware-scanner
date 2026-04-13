@@ -3,7 +3,6 @@
 
 #[cfg(test)]
 mod e2e_tests {
-    
 
     /// Test the expected output format
     #[test]
