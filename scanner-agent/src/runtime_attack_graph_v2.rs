@@ -113,6 +113,11 @@ pub struct VulnerabilityNode {
 /// Edge types with aggregated data
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub enum RuntimeEdge {
+    /// Process created/spawned
+    ProcessCreated {
+        timestamp_ns: u64,
+        confidence: f32,
+    },
     LibraryLoaded {
         timestamp_ns: u64,
         confidence: f32,
@@ -141,6 +146,16 @@ impl RuntimeEdge {
     /// Check if this edge represents burst activity
     pub fn is_burst(&self) -> bool {
         matches!(self, RuntimeEdge::NetworkConnection { event_count, .. } if *event_count > 1)
+    }
+
+    /// Get timestamp for temporal ordering
+    pub fn timestamp_ns(&self) -> Option<u64> {
+        match self {
+            RuntimeEdge::ProcessCreated { timestamp_ns, .. } => Some(*timestamp_ns),
+            RuntimeEdge::LibraryLoaded { timestamp_ns, .. } => Some(*timestamp_ns),
+            RuntimeEdge::NetworkConnection { timestamp_ns, .. } => Some(*timestamp_ns),
+            _ => None,
+        }
     }
 }
 

@@ -266,6 +266,28 @@ async fn main() -> Result<(), ScannerError> {
 
     // Load eBPF and start event consumption
     let (shutdown_tx, shutdown_rx) = watch::channel(false);
+
+    // Create streaming engine and get event sender for eBPF integration
+    let streaming_config = streaming_engine::StreamingConfig {
+        output_interval_ms: parse_duration(&cli.stream_interval),
+        alert_threshold: 0.8,
+        risk_escalation_threshold: 0.7,
+        channel_buffer_size: 1000,
+        stream_json: cli.stream_json,
+        top_k: cli.top_k,
+        export_graph: cli.export_graph.is_some(),
+        graph_export_interval_secs: 60,
+    };
+
+    let (streaming_engine, event_rx) =
+        streaming_engine::StreamingEngine::new(attack_graph.clone(), streaming_config.clone());
+    let event_tx = streaming_engine.sender();
+
+    // Start streaming engine in background
+    let streaming_handle = tokio::spawn(async move {
+        streaming_engine.run(event_rx).await;
+    });
+
     let (event_handle, analysis_handle) = match load_and_run_ebpf(
         &cli,
         &config,
@@ -274,6 +296,7 @@ async fn main() -> Result<(), ScannerError> {
         metrics.clone(),
         event_stats.clone(),
         shutdown_rx,
+        event_tx,
     )
     .await
     {
@@ -341,32 +364,17 @@ async fn main() -> Result<(), ScannerError> {
 
     // Run pipeline based on mode
     let analysis_handle: tokio::task::JoinHandle<Result<Vec<Finding>, ScannerError>> =
-        if cli.mode == ExecutionMode::Stream {
-            // Stream mode: real-time continuous updates
-            info!("Running in STREAM mode - real-time attack path detection");
+    if cli.mode == ExecutionMode::Stream {
+        // Stream mode: real-time continuous updates already running via streaming_handle
+        info!("Running in STREAM mode - real-time attack path detection");
 
-            let streaming_config = streaming_engine::StreamingConfig {
-                output_interval_ms: parse_duration(&cli.stream_interval),
-                alert_threshold: 0.8,
-                risk_escalation_threshold: 0.7,
-                channel_buffer_size: 1000,
-                stream_json: cli.stream_json,
-                top_k: cli.top_k,
-                export_graph: cli.export_graph.is_some(),
-                graph_export_interval_secs: 60,
-            };
-
-            tokio::spawn(async move {
-                streaming_engine::run_streaming_mode_with_webhooks(
-                    attack_graph.clone(),
-                    streaming_config,
-                    webhook_manager.clone(),
-                )
-                .await;
-                // Streaming mode doesn't produce findings in the same way
-                Ok(Vec::new())
-            })
-        } else {
+        // Just wait for streaming to complete (it runs until shutdown)
+        tokio::spawn(async move {
+            let _ = streaming_handle.await;
+            // Streaming mode doesn't produce findings in the same way
+            Ok(Vec::new())
+        })
+    } else {
             // Batch mode: traditional analysis
             info!("Running in BATCH mode - periodic analysis");
 
@@ -422,6 +430,7 @@ async fn load_and_run_ebpf(
     metrics: Metrics,
     event_stats: Arc<Mutex<event_consumer::ConsumerStats>>,
     shutdown: watch::Receiver<bool>,
+    event_tx: tokio::sync::mpsc::Sender<streaming_engine::StreamEvent>,
 ) -> Result<
     (
         Option<tokio::task::JoinHandle<()>>,
@@ -451,8 +460,9 @@ async fn load_and_run_ebpf(
     // Open ring buffers
     let (exec_rb, file_rb, net_rb) = loader.open_ringbufs()?;
 
-    // Create event consumer
-    let consumer = EventConsumer::new(exec_rb, file_rb, net_rb);
+    // Create event consumer with streaming engine connection
+    let mut consumer = EventConsumer::new(exec_rb, file_rb, net_rb);
+    consumer.set_event_sender(event_tx);
 
     // Start event consumer
     let event_handle = tokio::spawn(async move {

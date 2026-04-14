@@ -4,6 +4,7 @@ use crate::cgroup::CgroupResolver;
 use crate::error::ScannerError;
 use crate::k8s::PodCache;
 use crate::metrics::Metrics;
+use crate::runtime_attack_graph_v2::{GraphUpdate, RuntimeNode, RuntimeEdge};
 use crate::state::StateStore;
 use aya::maps::{MapData, RingBuf};
 use bytes::BytesMut;
@@ -35,6 +36,9 @@ pub struct EventConsumer {
     events_dropped: u64,
     events_filtered: u64,
     batches_processed: u64,
+
+    // Event bus sender for streaming engine
+    event_tx: Option<tokio::sync::mpsc::Sender<crate::streaming_engine::StreamEvent>>,
 }
 
 impl EventConsumer {
@@ -57,6 +61,35 @@ impl EventConsumer {
             events_dropped: 0,
             events_filtered: 0,
             batches_processed: 0,
+            event_tx: None,
+        }
+    }
+
+    /// Set the event bus sender for streaming engine integration
+    pub fn set_event_sender(
+        &mut self,
+        sender: tokio::sync::mpsc::Sender<crate::streaming_engine::StreamEvent>,
+    ) {
+        self.event_tx = Some(sender);
+    }
+
+    /// Emit a BPF event to the streaming engine
+    async fn emit_bpf_event(&self, timestamp_ns: u64, kind: &str, details: &str) {
+        if let Some(tx) = &self.event_tx {
+            let event = crate::streaming_engine::StreamEvent::BpfEvent {
+                timestamp_ns,
+                kind: kind.to_string(),
+                details: details.to_string(),
+            };
+            let _ = tx.send(event).await;
+        }
+    }
+
+    /// Emit a graph update event
+    async fn emit_graph_update(&self, update: crate::runtime_attack_graph_v2::GraphUpdate) {
+        if let Some(tx) = &self.event_tx {
+            let event = crate::streaming_engine::StreamEvent::GraphUpdate(update);
+            let _ = tx.send(event).await;
         }
     }
 
@@ -321,70 +354,170 @@ impl EventConsumer {
         Ok(())
     }
 
-    async fn process_exec_batch(
-        &mut self,
-        state_store: &Arc<Mutex<StateStore>>,
-        cgroup_resolver: &Arc<Mutex<CgroupResolver>>,
-    ) -> Result<(), ScannerError> {
-        for event in &self.exec_batch {
-            let cgroup_id = event.cgroup_id;
+async fn process_exec_batch(
+    &mut self,
+    state_store: &Arc<Mutex<StateStore>>,
+    cgroup_resolver: &Arc<Mutex<CgroupResolver>>,
+) -> Result<(), ScannerError> {
+    for event in &self.exec_batch {
+        let cgroup_id = event.cgroup_id;
+        let command = c_string(&event.command);
 
-            // Resolve container ID
-            let mut resolver = cgroup_resolver.lock().await;
-            if let Some((container_id, _pid)) = resolver.resolve(cgroup_id).await {
-                trace!(
-                    cgroup_id,
-                    container_id,
-                    command = %c_string(&event.command),
-                    "Resolved exec event"
-                );
-            }
+        // Resolve container ID
+        let mut resolver = cgroup_resolver.lock().await;
+        if let Some((container_id, _pid)) = resolver.resolve(cgroup_id).await {
+            trace!(
+                cgroup_id,
+                container_id,
+                command = %command,
+                "Resolved exec event"
+            );
+        }
+        drop(resolver);
+
+        // Emit BPF event for new process execution
+        self.emit_bpf_event(
+            event.timestamp_ns,
+            "exec",
+            &format!("pid={} command={}", event.pid, command),
+        )
+        .await;
+
+        // Emit graph update for new process
+        let process_node_id = format!("proc:{}:{}", event.pid, command);
+        let cgroup_node_id = format!("cgroup:{}", cgroup_id);
+
+        let update = GraphUpdate::EdgeAdded {
+            from: cgroup_node_id,
+            to: process_node_id,
+            edge: RuntimeEdge::ProcessCreated {
+                timestamp_ns: event.timestamp_ns,
+                confidence: 1.0,
+            },
+        };
+        self.emit_graph_update(update).await;
+    }
+
+    Ok(())
+}
+
+async fn process_file_batch(
+    &mut self,
+    state_store: &Arc<Mutex<StateStore>>,
+    cgroup_resolver: &Arc<Mutex<CgroupResolver>>,
+) -> Result<(), ScannerError> {
+    for event in &self.file_batch {
+        let path = c_string(&event.path);
+
+        // Check for sensitive paths
+        if is_sensitive_path(&path) {
+            debug!(
+                cgroup_id = event.cgroup_id,
+                path = %path,
+                "Sensitive file access detected"
+            );
+            self.emit_bpf_event(event.timestamp_ns, "file", &format!("sensitive: {}", path))
+                .await;
+        }
+
+        // Emit graph updates for library loads
+        if event.kind == EventKind::Mmap && is_shared_library(&path) {
+            // Get process info from cgroup resolver
+            let resolver = cgroup_resolver.lock().await;
+            let process_name = if let Some((_, pid)) = resolver.resolve(event.cgroup_id).await {
+                format!("pid-{}", pid)
+            } else {
+                "unknown".to_string()
+            };
             drop(resolver);
-        }
 
-        Ok(())
+            // Emit BPF event for library load
+            self.emit_bpf_event(
+                event.timestamp_ns,
+                "library_load",
+                &format!("{} -> {}", process_name, path),
+            )
+            .await;
+
+            // Emit graph update for library load
+            let process_node_id = format!("proc:{}:{}", event.pid, process_name);
+            let lib_node_id = format!("lib:{}", path);
+            
+            let update = GraphUpdate::EdgeAdded {
+                from: process_node_id,
+                to: lib_node_id,
+                edge: RuntimeEdge::LibraryLoaded {
+                    timestamp_ns: event.timestamp_ns,
+                    confidence: 1.0,
+                },
+            };
+            self.emit_graph_update(update).await;
+        }
     }
 
-    async fn process_file_batch(
-        &mut self,
-        state_store: &Arc<Mutex<StateStore>>,
-        cgroup_resolver: &Arc<Mutex<CgroupResolver>>,
-    ) -> Result<(), ScannerError> {
-        for event in &self.file_batch {
-            let path = c_string(&event.path);
+    Ok(())
+}
 
-            // Check for sensitive paths
-            if is_sensitive_path(&path) {
-                debug!(
-                    cgroup_id = event.cgroup_id,
-                    path = %path,
-                    "Sensitive file access detected"
-                );
-            }
+async fn process_net_batch(
+    &mut self,
+    state_store: &Arc<Mutex<StateStore>>,
+    cgroup_resolver: &Arc<Mutex<CgroupResolver>>,
+) -> Result<(), ScannerError> {
+    for event in &self.net_batch {
+        let daddr_str = format!(
+            "{}.{}.{}.{}",
+            (event.daddr >> 24) & 0xFF,
+            (event.daddr >> 16) & 0xFF,
+            (event.daddr >> 8) & 0xFF,
+            event.daddr & 0xFF
+        );
+
+        // Check for suspicious destinations
+        if is_suspicious_destination(event.daddr, event.dport) {
+            debug!(
+                cgroup_id = event.cgroup_id,
+                daddr = %daddr_str,
+                dport = event.dport,
+                "Suspicious network connection"
+            );
+            self.emit_bpf_event(
+                event.timestamp_ns,
+                "suspicious_net",
+                &format!("{}:{}", daddr_str, event.dport),
+            )
+            .await;
         }
 
-        Ok(())
-    }
+        // Emit graph update for network connections
+        if event.kind == EventKind::Connect {
+            // Get process info
+            let resolver = cgroup_resolver.lock().await;
+            let process_name = if let Some((_, pid)) = resolver.resolve(event.cgroup_id).await {
+                format!("pid-{}", pid)
+            } else {
+                "unknown".to_string()
+            };
+            drop(resolver);
 
-    async fn process_net_batch(
-        &mut self,
-        state_store: &Arc<Mutex<StateStore>>,
-        cgroup_resolver: &Arc<Mutex<CgroupResolver>>,
-    ) -> Result<(), ScannerError> {
-        for event in &self.net_batch {
-            // Check for suspicious destinations
-            if is_suspicious_destination(event.daddr, event.dport) {
-                debug!(
-                    cgroup_id = event.cgroup_id,
-                    daddr = %format!("{}.{}", (event.daddr >> 24) & 0xFF, (event.daddr >> 16) & 0xFF),
-                    dport = event.dport,
-                    "Suspicious network connection"
-                );
-            }
+            let process_node_id = format!("proc:{}:{}", event.pid, process_name);
+            let net_node_id = format!("net:{}:{}", daddr_str, event.dport);
+
+        let update = GraphUpdate::EdgeAdded {
+            from: process_node_id,
+            to: net_node_id,
+            edge: RuntimeEdge::NetworkConnection {
+                timestamp_ns: event.timestamp_ns,
+                total_bytes: event.data_size as u64,
+                event_count: 1,
+                confidence: 1.0,
+            },
+        };
+            self.emit_graph_update(update).await;
         }
-
-        Ok(())
     }
+
+    Ok(())
+}
 
     // Event parsers
     fn parse_exec_event(&self, data: &[u8]) -> Option<ExecEvent> {
@@ -521,6 +654,16 @@ fn is_suspicious_destination(_addr: u32, port: u16) -> bool {
     .collect();
 
     suspicious_ports.contains(&port)
+}
+
+/// Check if path is a shared library
+fn is_shared_library(path: &str) -> bool {
+    path.ends_with(".so") || 
+    path.contains(".so.") ||
+    path.ends_with(".so.1") ||
+    path.ends_with(".so.2") ||
+    path.contains("/lib/") ||
+    path.contains("/usr/lib/")
 }
 
 #[cfg(test)]
