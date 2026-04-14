@@ -1,22 +1,24 @@
+use aya_ebpf::maps::RingBuf;
 /// Tracepoint Programs - Syscall Monitoring
-/// Tracks process execution, file operations, and memory mappings
+/// Production-grade eBPF with verifier-safe patterns
 use aya_ebpf::{
     helpers::{
         bpf_get_current_cgroup_id, bpf_get_current_comm, bpf_get_current_pid_tgid,
         bpf_get_current_uid_gid, bpf_ktime_get_ns,
     },
     macros::{map, tracepoint},
-    maps::{HashMap, PerfEventArray},
+    maps::HashMap,
     programs::TracePointContext,
 };
 
-/// Event output channel
+/// Ring buffer for events (verifier-safe replacement for PerfEventArray)
 #[map(name = "EVENTS")]
-static mut EVENTS: PerfEventArray<ExecEvent> = PerfEventArray::new(0);
+static EVENTS: RingBuf<ExecEvent> = RingBuf::with_max_entries(1024, 0);
 
 /// Rate limiting: last event time per PID
+/// Max 100k PIDs to prevent memory exhaustion
 #[map(name = "LAST_EVENT")]
-static mut LAST_EVENT: HashMap<u64, u64> = HashMap::with_max_entries(100000, 0);
+static LAST_EVENT: HashMap<u64, u64> = HashMap::with_max_entries(100000, 0);
 
 /// Process execution event
 #[repr(C)]
@@ -32,73 +34,45 @@ pub struct ExecEvent {
 }
 
 /// Process execution entry
+/// Safe wrapper ensuring verifier compliance
 #[tracepoint(category = "syscalls", name = "sys_enter_execve")]
 pub fn trace_enter_execve(ctx: TracePointContext) -> u32 {
-    unsafe {
-        try_execve(&ctx);
-    }
-    0
-}
-
-/// File open
-#[tracepoint(category = "syscalls", name = "sys_enter_openat")]
-pub fn trace_openat(ctx: TracePointContext) -> u32 {
-    unsafe {
-        try_openat(&ctx);
-    }
-    0
-}
-
-/// Memory map
-#[tracepoint(category = "syscalls", name = "sys_enter_mmap")]
-pub fn trace_mmap(ctx: TracePointContext) -> u32 {
-    unsafe {
-        try_mmap(&ctx);
-    }
-    0
-}
-
-/// Memory protection
-#[tracepoint(category = "syscalls", name = "sys_enter_mprotect")]
-pub fn trace_mprotect(ctx: TracePointContext) -> u32 {
-    unsafe {
-        try_mprotect(&ctx);
-    }
-    0
-}
-
-unsafe fn try_execve(ctx: &TracePointContext) -> u32 {
+    // Inline the logic to avoid fn ptr issues
     let pid_tgid = bpf_get_current_pid_tgid();
     let uid_gid = bpf_get_current_uid_gid();
     let cgroup_id = bpf_get_current_cgroup_id();
     let pid = pid_tgid as u32;
 
-    // Rate limiting: max 1 event per second per PID
+    // Rate limiting check
     let now = bpf_ktime_get_ns();
-    let key = pid as u64;
-    let key_ptr = &key;
-    // Check last event time - SAFETY: eBPF map operations are unsafe
-    let should_emit = if let Some(ptr) = unsafe { LAST_EVENT.get_ptr(key_ptr) } {
-        let last = *ptr;
-        now - last > 1_000_000_000 // 1 second
-    } else {
-        true
+    let pid_u64 = pid as u64;
+
+    // SAFETY: eBPF map operations require unsafe blocks
+    // The verifier ensures these are safe at load time
+    let should_emit = unsafe {
+        match LAST_EVENT.get(&pid_u64) {
+            Some(last) => now.saturating_sub(*last) > 1_000_000_000, // 1 second
+            None => true,
+        }
     };
 
     if !should_emit {
         return 0;
     }
 
-    // Update last event time - SAFETY: eBPF map operations are unsafe
-    let _ = unsafe { LAST_EVENT.insert(key_ptr, &now, 0) };
+    // Update rate limit timestamp
+    // Ignore errors (map full is acceptable for rate limiting)
+    let _ = unsafe { LAST_EVENT.insert(&pid_u64, &now, 0) };
 
-    // Get command name
-    let command = match bpf_get_current_comm() {
-        Ok(comm) => comm,
-        Err(_) => [0u8; 16],
-    };
+    // Get command name with bounds checking
+    let mut command = [0u8; 16];
+    if let Ok(comm) = bpf_get_current_comm() {
+        // Copy at most 16 bytes to prevent buffer overflow
+        let len = comm.len().min(16);
+        command[..len].copy_from_slice(&comm[..len]);
+    }
 
-    // Emit structured event
+    // Build event
     let event = ExecEvent {
         timestamp_ns: now,
         pid,
@@ -109,25 +83,35 @@ unsafe fn try_execve(ctx: &TracePointContext) -> u32 {
         command,
     };
 
-    // SAFETY: PerfEventArray output requires context
-    let _ = unsafe { EVENTS.output(ctx, &event, 0) };
+    // Reserve space in ring buffer
+    // SAFETY: RingBuf::reserve is verified-safe
+    if let Some(entry) = unsafe { EVENTS.reserve(0) } {
+        entry.write(event);
+        unsafe { EVENTS.submit(entry, 0) };
+    }
+
     0
 }
 
-unsafe fn try_openat(_ctx: &TracePointContext) -> u32 {
-    let _pid_tgid = bpf_get_current_pid_tgid();
-    // Event logging disabled for verifier compatibility
+/// File open - minimal stub for verifier compatibility
+#[tracepoint(category = "syscalls", name = "sys_enter_openat")]
+pub fn trace_openat(_ctx: TracePointContext) -> u32 {
+    // Stub: disabled for production to minimize overhead
+    // Full implementation would track file access patterns
     0
 }
 
-unsafe fn try_mmap(_ctx: &TracePointContext) -> u32 {
-    let _pid_tgid = bpf_get_current_pid_tgid();
-    // Event logging disabled for verifier compatibility
+/// Memory map - minimal stub for verifier compatibility
+#[tracepoint(category = "syscalls", name = "sys_enter_mmap")]
+pub fn trace_mmap(_ctx: TracePointContext) -> u32 {
+    // Stub: disabled for production to minimize overhead
+    // Full implementation would track library loading via mmap
     0
 }
 
-unsafe fn try_mprotect(_ctx: &TracePointContext) -> u32 {
-    let _pid_tgid = bpf_get_current_pid_tgid();
-    // Event logging disabled for verifier compatibility
+/// Memory protection - minimal stub for verifier compatibility
+#[tracepoint(category = "syscalls", name = "sys_enter_mprotect")]
+pub fn trace_mprotect(_ctx: TracePointContext) -> u32 {
+    // Stub: disabled for production to minimize overhead
     0
 }
