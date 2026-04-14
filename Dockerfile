@@ -6,9 +6,13 @@ FROM rust:1.90-bookworm AS builder
 WORKDIR /src
 COPY . .
 
+# Install protobuf compiler (required for remediator gRPC)
+RUN apt-get update && apt-get install -y --no-install-recommends protobuf-compiler && rm -rf /var/lib/apt/lists/*
+
 # Install nightly toolchain with rust-src for eBPF
 RUN rustup toolchain install nightly \
-    && rustup component add rust-src --toolchain nightly
+    && rustup component add rust-src --toolchain nightly \
+    && rustup target add bpfel-unknown-none --toolchain nightly
 
 # Install bpf-linker required for eBPF compilation
 RUN cargo +nightly install bpf-linker
@@ -20,8 +24,8 @@ RUN cargo +nightly build -p scanner-ebpf \
     -Z build-std=core \
     && ls -la /src/target/bpfel-unknown-none/release/
 
-# Build agent (stable)
-RUN cargo build --release -p scanner-agent --no-default-features
+# Build agent with eBPF feature
+RUN cargo build --release -p scanner-agent --features ebpf
 
 FROM debian:bookworm-slim
 

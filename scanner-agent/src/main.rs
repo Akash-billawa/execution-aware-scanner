@@ -47,6 +47,9 @@ mod event_consumer {
         pub events_dropped: u64,
         pub events_filtered: u64,
         pub batches_processed: u64,
+        pub exec_batch_size: usize,
+        pub file_batch_size: usize,
+        pub net_batch_size: usize,
     }
 }
 #[cfg(not(feature = "ebpf"))]
@@ -264,6 +267,11 @@ async fn main() -> Result<(), ScannerError> {
         );
     }
 
+    // Initialize attack graph for streaming mode
+    let attack_graph = Arc::new(RwLock::new(
+        runtime_attack_graph_v2::RuntimeAttackGraph::with_defaults(),
+    ));
+
     // Load eBPF and start event consumption
     let (shutdown_tx, shutdown_rx) = watch::channel(false);
 
@@ -317,11 +325,6 @@ async fn main() -> Result<(), ScannerError> {
             (None, None)
         }
     };
-
-    // Initialize attack graph for streaming mode
-    let attack_graph = Arc::new(RwLock::new(
-        runtime_attack_graph_v2::RuntimeAttackGraph::with_defaults(),
-    ));
 
     // Setup webhook manager if URL is provided
     let mut webhook_manager = webhook_sender::WebhookManager::new();
@@ -486,6 +489,7 @@ async fn load_and_run_ebpf(
     _metrics: Metrics,
     _event_stats: Arc<Mutex<ConsumerStats>>,
     _shutdown: watch::Receiver<bool>,
+    _event_tx: tokio::sync::mpsc::Sender<streaming_engine::StreamEvent>,
 ) -> Result<
     (
         Option<tokio::task::JoinHandle<()>>,

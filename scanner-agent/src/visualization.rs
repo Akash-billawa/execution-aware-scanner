@@ -456,18 +456,19 @@ impl GraphExporter {
     fn extract_edges_from_graph(graph: &RuntimeAttackGraph) -> Vec<ExportEdge> {
         let mut export_edges = Vec::new();
 
-        for (from, to, edge) in graph.edges() {
-            let (edge_type, label): (&str, String) = match edge {
-                RuntimeEdge::LibraryLoaded { .. } => ("mmap", "loaded".to_string()),
-                RuntimeEdge::Vulnerable { .. } => ("vulnerable", "vulnerable".to_string()),
-                RuntimeEdge::NetworkConnection { total_bytes, .. } => {
-                    ("network", format!("{} bytes", total_bytes))
-                }
-                RuntimeEdge::ExploitationAttempt { evidence, .. } => {
-                    ("exploitation", evidence.clone())
-                }
-                RuntimeEdge::UsesTechnique { .. } => ("technique", "uses".to_string()),
-            };
+    for (from, to, edge) in graph.edges() {
+        let (edge_type, label): (&str, String) = match edge {
+            RuntimeEdge::ProcessCreated { .. } => ("process", "created".to_string()),
+            RuntimeEdge::LibraryLoaded { .. } => ("mmap", "loaded".to_string()),
+            RuntimeEdge::Vulnerable { .. } => ("vulnerable", "vulnerable".to_string()),
+            RuntimeEdge::NetworkConnection { total_bytes, .. } => {
+                ("network", format!("{} bytes", total_bytes))
+            }
+            RuntimeEdge::ExploitationAttempt { evidence, .. } => {
+                ("exploitation", evidence.clone())
+            }
+            RuntimeEdge::UsesTechnique { .. } => ("technique", "uses".to_string()),
+        };
 
             export_edges.push(ExportEdge {
                 from,
