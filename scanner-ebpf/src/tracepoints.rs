@@ -1,4 +1,3 @@
-use aya_ebpf::maps::RingBuf;
 /// Tracepoint Programs - Syscall Monitoring
 /// Production-grade eBPF with verifier-safe patterns
 use aya_ebpf::{
@@ -7,7 +6,7 @@ use aya_ebpf::{
         bpf_get_current_uid_gid, bpf_ktime_get_ns,
     },
     macros::{map, tracepoint},
-    maps::HashMap,
+    maps::{HashMap, RingBuf},
     programs::TracePointContext,
 };
 
@@ -19,6 +18,14 @@ static EVENTS: RingBuf<ExecEvent> = RingBuf::with_max_entries(1024, 0);
 /// Max 100k PIDs to prevent memory exhaustion
 #[map(name = "LAST_EVENT")]
 static LAST_EVENT: HashMap<u64, u64> = HashMap::with_max_entries(100000, 0);
+
+/// Dropped events counter - critical for observability
+#[map(name = "DROPPED_EVENTS")]
+static DROPPED_EVENTS: HashMap<u32, u64> = HashMap::with_max_entries(1, 0);
+
+/// Event counter for rate tracking (key 0 = total events emitted)
+#[map(name = "EVENT_COUNT")]
+static EVENT_COUNT: HashMap<u32, u64> = HashMap::with_max_entries(1, 0);
 
 /// Process execution event
 #[repr(C)]
@@ -83,11 +90,27 @@ pub fn trace_enter_execve(ctx: TracePointContext) -> u32 {
         command,
     };
 
-    // Reserve space in ring buffer
+    // Reserve space in ring buffer with drop tracking
     // SAFETY: RingBuf::reserve is verified-safe
     if let Some(entry) = unsafe { EVENTS.reserve(0) } {
         entry.write(event);
         unsafe { EVENTS.submit(entry, 0) };
+
+        // Increment event counter
+        let key: u32 = 0;
+        let count = unsafe { EVENT_COUNT.get(&key) }
+            .copied()
+            .unwrap_or(0)
+            .saturating_add(1);
+        let _ = unsafe { EVENT_COUNT.insert(&key, &count, 0) };
+    } else {
+        // Track dropped event
+        let key: u32 = 0;
+        let dropped = unsafe { DROPPED_EVENTS.get(&key) }
+            .copied()
+            .unwrap_or(0)
+            .saturating_add(1);
+        let _ = unsafe { DROPPED_EVENTS.insert(&key, &dropped, 0) };
     }
 
     0

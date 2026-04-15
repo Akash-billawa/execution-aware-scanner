@@ -614,6 +614,38 @@ async fn process_net_batch(
             net_batch_size: self.net_batch.len(),
         }
     }
+
+    /// Read kernel-level metrics from eBPF maps
+    /// SAFETY: Requires eBPF maps to be loaded
+    #[cfg(all(feature = "ebpf", target_os = "linux"))]
+    pub fn read_kernel_metrics(&self, bpf: &aya::Ebpf) -> Result<KernelMetrics, ScannerError> {
+        use aya::maps::HashMap;
+        
+        let mut metrics = KernelMetrics::default();
+        
+        // Read dropped events counter
+        if let Ok(dropped_map) = HashMap::<_, u32, u64>::try_from(bpf.map("DROPPED_EVENTS").ok_or("DROPPED_EVENTS map not found")?) {
+            if let Ok(count) = dropped_map.get(&0, 0) {
+                metrics.dropped_events = *count;
+            }
+        }
+        
+        // Read event counter
+        if let Ok(count_map) = HashMap::<_, u32, u64>::try_from(bpf.map("EVENT_COUNT").ok_or("EVENT_COUNT map not found")?) {
+            if let Ok(count) = count_map.get(&0, 0) {
+                metrics.events_emitted = *count;
+            }
+        }
+        
+        Ok(metrics)
+    }
+}
+
+/// Kernel-level metrics from eBPF
+#[derive(Debug, Default)]
+pub struct KernelMetrics {
+    pub events_emitted: u64,
+    pub dropped_events: u64,
 }
 
 #[derive(Debug)]

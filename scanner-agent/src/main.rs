@@ -810,6 +810,7 @@ async fn run_analysis_pipeline(
 async fn run_metrics_server(bind_addr: String, state: AppState) -> Result<(), ScannerError> {
     let app = Router::new()
         .route("/metrics", get(metrics_handler))
+        .route("/metrics/kernel", get(kernel_metrics_handler))
         .route("/health", get(health_handler))
         .route("/ready", get(ready_handler))
         .with_state(state);
@@ -821,6 +822,28 @@ async fn run_metrics_server(bind_addr: String, state: AppState) -> Result<(), Sc
 
 async fn metrics_handler(State(state): State<AppState>) -> impl IntoResponse {
     state.metrics.render()
+}
+
+async fn kernel_metrics_handler(State(state): State<AppState>) -> impl IntoResponse {
+    let stats = state.event_stats.lock().await;
+    axum::response::Json(serde_json::json!({
+        "user_space": {
+            "events_received": stats.events_received,
+            "events_dropped": stats.events_dropped,
+            "events_filtered": stats.events_filtered,
+            "batches_processed": stats.batches_processed,
+            "exec_batch_size": stats.exec_batch_size,
+            "file_batch_size": stats.file_batch_size,
+            "net_batch_size": stats.net_batch_size,
+        },
+        "kernel_space": {
+            // These would be populated from eBPF maps if available
+            "events_emitted": 0, // From EVENT_COUNT map
+            "dropped_events": 0, // From DROPPED_EVENTS map
+            "ring_buffer_capacity": 1024,
+        },
+        "timestamp": chrono::Utc::now().to_rfc3339(),
+    }))
 }
 
 async fn health_handler() -> impl IntoResponse {
