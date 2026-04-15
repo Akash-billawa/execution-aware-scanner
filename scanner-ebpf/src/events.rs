@@ -47,6 +47,23 @@ pub struct SecurityEvent {
     pub comm: [u8; 16],
 }
 
+impl Default for SecurityEvent {
+    fn default() -> Self {
+        Self {
+            ts: 0,
+            kind: EventKind::Exec,
+            pid: 0,
+            tgid: 0,
+            uid: 0,
+            gid: 0,
+            cgroup_id: 0,
+            confidence: 50,
+            data: EventData { raw: [0; 128] },
+            comm: [0; 16],
+        }
+    }
+}
+
 /// Event type discriminator
 #[repr(u8)]
 #[derive(Clone, Copy, PartialEq)]
@@ -83,9 +100,15 @@ pub union EventData {
     pub raw: [u8; 128],
 }
 
+impl Default for EventData {
+    fn default() -> Self {
+        Self { raw: [0; 128] }
+    }
+}
+
 /// Exec event specific data
 #[repr(C)]
-#[derive(Clone, Copy, Default)]
+#[derive(Clone, Copy)]
 pub struct ExecData {
     /// Parent PID
     pub ppid: u32,
@@ -97,9 +120,20 @@ pub struct ExecData {
     pub args: [u8; 120],
 }
 
+impl Default for ExecData {
+    fn default() -> Self {
+        Self {
+            ppid: 0,
+            is_setuid: 0,
+            _pad: [0; 3],
+            args: [0; 120],
+        }
+    }
+}
+
 /// File event specific data
 #[repr(C)]
-#[derive(Clone, Copy, Default)]
+#[derive(Clone, Copy)]
 pub struct FileData {
     /// File path (truncated)
     pub path: [u8; 96],
@@ -111,9 +145,20 @@ pub struct FileData {
     pub _pad: [u8; 27],
 }
 
+impl Default for FileData {
+    fn default() -> Self {
+        Self {
+            path: [0; 96],
+            flags: 0,
+            is_sensitive: 0,
+            _pad: [0; 27],
+        }
+    }
+}
+
 /// Network event specific data
 #[repr(C)]
-#[derive(Clone, Copy, Default)]
+#[derive(Clone, Copy)]
 pub struct NetData {
     /// Source address (IPv4 or IPv6 first 4 bytes)
     pub saddr: u32,
@@ -135,6 +180,22 @@ pub struct NetData {
     pub _pad: [u8; 101],
 }
 
+impl Default for NetData {
+    fn default() -> Self {
+        Self {
+            saddr: 0,
+            daddr: 0,
+            sport: 0,
+            dport: 0,
+            bytes: 0,
+            protocol: 0,
+            is_external: 0,
+            is_suspicious_port: 0,
+            _pad: [0; 101],
+        }
+    }
+}
+
 impl EventKind {
     /// Convert to string for logging
     pub fn as_str(&self) -> &'static str {
@@ -151,9 +212,9 @@ impl EventKind {
     }
 }
 
-/// Ring buffer for unified security events
+/// Ring buffer for unified security events (4096 * 168 bytes = ~688KB)
 #[map(name = "SECURITY_EVENTS")]
-pub static SECURITY_EVENTS: RingBuf<SecurityEvent> = RingBuf::with_max_entries(4096, 0);
+pub static SECURITY_EVENTS: RingBuf = RingBuf::with_byte_size(4096 * 168, 0);
 
 /// Event counter per kind for rate tracking
 #[map(name = "EVENT_COUNT_BY_KIND")]
@@ -167,19 +228,19 @@ pub static DROPPED_BY_KIND: HashMap<u8, u64> = HashMap::with_max_entries(8, 0);
 /// This is the key function - attaches ALL context at kernel source
 #[inline(always)]
 pub fn create_base_event(kind: EventKind) -> SecurityEvent {
-    let pid_tgid = bpf_get_current_pid_tgid();
-    let uid_gid = bpf_get_current_uid_gid();
-    let cgroup_id = bpf_get_current_cgroup_id();
+    let pid_tgid = unsafe { bpf_get_current_pid_tgid() };
+    let uid_gid = unsafe { bpf_get_current_uid_gid() };
+    let cgroup_id = unsafe { bpf_get_current_cgroup_id() };
 
     // Get command name
     let mut comm = [0u8; 16];
-    if let Ok(name) = bpf_get_current_comm() {
+    if let Ok(name) = unsafe { bpf_get_current_comm() } {
         let len = name.len().min(16);
         comm[..len].copy_from_slice(&name[..len]);
     }
 
     SecurityEvent {
-        ts: bpf_ktime_get_ns(),
+        ts: unsafe { bpf_ktime_get_ns() },
         kind,
         pid: pid_tgid as u32,
         tgid: (pid_tgid >> 32) as u32,
@@ -314,11 +375,4 @@ pub fn is_external_ip(ip: u32) -> bool {
     }
 
     true
-}
-
-/// Default implementations for EventData
-impl Default for EventData {
-    fn default() -> Self {
-        Self { raw: [0; 128] }
-    }
 }

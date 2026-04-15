@@ -10,7 +10,7 @@ use aya_ebpf::{
         bpf_get_current_uid_gid, bpf_ktime_get_ns,
     },
     macros::{map, tracepoint},
-    maps::{HashMap, RingBuf},
+    maps::HashMap,
     programs::TracePointContext,
 };
 
@@ -21,14 +21,14 @@ static LAST_EVENT: HashMap<u64, u64> = HashMap::with_max_entries(100000, 0);
 /// Process execution entry
 /// Emits unified SecurityEvent with all context pre-filled
 #[tracepoint(category = "syscalls", name = "sys_enter_execve")]
-pub fn trace_enter_execve(ctx: TracePointContext) -> u32 {
-    let pid_tgid = bpf_get_current_pid_tgid();
-    let uid_gid = bpf_get_current_uid_gid();
-    let cgroup_id = bpf_get_current_cgroup_id();
+pub fn trace_enter_execve(_ctx: TracePointContext) -> u32 {
+    let pid_tgid = unsafe { bpf_get_current_pid_tgid() };
+    let uid_gid = unsafe { bpf_get_current_uid_gid() };
+    let cgroup_id = unsafe { bpf_get_current_cgroup_id() };
     let pid = pid_tgid as u32;
 
     // Rate limiting: max 1 event per second per PID
-    let now = bpf_ktime_get_ns();
+    let now = unsafe { bpf_ktime_get_ns() };
     let pid_u64 = pid as u64;
 
     let should_emit = unsafe {
@@ -47,7 +47,7 @@ pub fn trace_enter_execve(ctx: TracePointContext) -> u32 {
 
     // Get command name
     let mut comm = [0u8; 16];
-    if let Ok(name) = bpf_get_current_comm() {
+    if let Ok(name) = unsafe { bpf_get_current_comm() } {
         let len = name.len().min(16);
         comm[..len].copy_from_slice(&name[..len]);
     }

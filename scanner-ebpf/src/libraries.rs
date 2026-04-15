@@ -9,7 +9,7 @@ use aya_ebpf::{
 
 /// Library load event
 #[repr(C)]
-#[derive(Clone, Copy, Default)]
+#[derive(Clone, Copy)]
 pub struct LibraryLoad {
     pub timestamp_ns: u64,
     pub pid: u32,
@@ -33,8 +33,8 @@ static LIBRARY_SEEN: HashMap<u64, u64> = HashMap::with_max_entries(100000, 0);
 #[kprobe(function = "do_mmap")]
 pub fn trace_do_mmap(_ctx: ProbeContext) -> i32 {
     // Get process context
-    let pid_tgid = bpf_get_current_pid_tgid();
-    let cgroup_id = bpf_get_current_cgroup_id();
+    let pid_tgid = unsafe { bpf_get_current_pid_tgid() };
+    let cgroup_id = unsafe { bpf_get_current_cgroup_id() };
     let pid = pid_tgid as u32;
 
     // Generate composite key: (pid << 32) | path_hash
@@ -51,7 +51,7 @@ pub fn trace_do_mmap(_ctx: ProbeContext) -> i32 {
     }
 
     // First time seeing this library - record it
-    let now = bpf_ktime_get_ns();
+    let now = unsafe { bpf_ktime_get_ns() };
 
     // Create library load event
     let load = LibraryLoad {

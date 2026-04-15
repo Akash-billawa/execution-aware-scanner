@@ -69,7 +69,7 @@ pub fn conn_key(saddr: u32, sport: u16, daddr: u32, dport: u16) -> u64 {
 /// SAFETY: All map operations are verified by the eBPF verifier
 pub fn track_tcp_connect(pid: u32, saddr: u32, sport: u16, daddr: u32, dport: u16, protocol: u8) {
     let key = conn_key(saddr, sport, daddr, dport);
-    let now = bpf_ktime_get_ns();
+    let now = unsafe { bpf_ktime_get_ns() };
 
     let conn = ConnectionInfo {
         saddr,
@@ -107,7 +107,7 @@ pub fn track_tcp_connect(pid: u32, saddr: u32, sport: u16, daddr: u32, dport: u1
 pub fn update_data_transfer(pid: u32, bytes: u64, is_send: bool) {
     // SAFETY: Map lookup and update are verified-safe
     if let Some(mut activity) = unsafe { PROCESS_NETWORK.get(&pid) }.copied() {
-        activity.last_activity_ns = bpf_ktime_get_ns();
+        activity.last_activity_ns = unsafe { bpf_ktime_get_ns() };
         if is_send {
             activity.bytes_sent = activity.bytes_sent.saturating_add(bytes);
         } else {
