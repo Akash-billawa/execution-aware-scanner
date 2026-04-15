@@ -258,9 +258,10 @@ pub fn create_base_event(kind: EventKind) -> SecurityEvent {
 #[inline(always)]
 pub fn emit_event(event: SecurityEvent) {
     // Reserve space in ring buffer
-    if let Some(entry) = unsafe { SECURITY_EVENTS.reserve(0) } {
+    // The entry is automatically submitted when the guard drops
+    if let Some(mut entry) = unsafe { SECURITY_EVENTS.reserve(0) } {
         entry.write(event);
-        unsafe { SECURITY_EVENTS.submit(entry, 0) };
+        // Entry is submitted automatically when it goes out of scope
 
         // Increment event counter by kind
         let kind_u8 = event.kind as u8;
