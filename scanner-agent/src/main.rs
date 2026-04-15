@@ -367,17 +367,17 @@ async fn main() -> Result<(), ScannerError> {
 
     // Run pipeline based on mode
     let analysis_handle: tokio::task::JoinHandle<Result<Vec<Finding>, ScannerError>> =
-    if cli.mode == ExecutionMode::Stream {
-        // Stream mode: real-time continuous updates already running via streaming_handle
-        info!("Running in STREAM mode - real-time attack path detection");
+        if cli.mode == ExecutionMode::Stream {
+            // Stream mode: real-time continuous updates already running via streaming_handle
+            info!("Running in STREAM mode - real-time attack path detection");
 
-        // Just wait for streaming to complete (it runs until shutdown)
-        tokio::spawn(async move {
-            let _ = streaming_handle.await;
-            // Streaming mode doesn't produce findings in the same way
-            Ok(Vec::new())
-        })
-    } else {
+            // Just wait for streaming to complete (it runs until shutdown)
+            tokio::spawn(async move {
+                let _ = streaming_handle.await;
+                // Streaming mode doesn't produce findings in the same way
+                Ok(Vec::new())
+            })
+        } else {
             // Batch mode: traditional analysis
             info!("Running in BATCH mode - periodic analysis");
 

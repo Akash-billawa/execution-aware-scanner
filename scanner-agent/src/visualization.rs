@@ -318,30 +318,30 @@ impl GraphExporter {
                     if !edge_pairs.contains(&edge_key) {
                         edge_pairs.insert(edge_key);
 
-                    let (edge_type, label, width, color): (&str, String, f32, &str) = match edge
-                    {
-                        RuntimeEdge::ProcessCreated { .. } => {
-                            ("process", "created".to_string(), 1.0, "#2ecc71")
-                        }
-                        RuntimeEdge::LibraryLoaded { .. } => {
-                            ("mmap", "loaded".to_string(), 1.0, "#95a5a6")
-                        }
-                        RuntimeEdge::Vulnerable { confidence } => (
-                            "vulnerable",
-                            "vulnerable".to_string(),
-                            *confidence,
-                            "#e74c3c",
-                        ),
-                        RuntimeEdge::NetworkConnection { total_bytes, .. } => {
-                            ("network", format!("{} bytes", total_bytes), 1.5, "#3498db")
-                        }
-                        RuntimeEdge::ExploitationAttempt { evidence, .. } => {
-                            ("exploitation", evidence.clone(), 2.0, "#e74c3c")
-                        }
-                        RuntimeEdge::UsesTechnique { .. } => {
-                            ("technique", "uses".to_string(), 1.0, "#9b59b6")
-                        }
-                    };
+                        let (edge_type, label, width, color): (&str, String, f32, &str) = match edge
+                        {
+                            RuntimeEdge::ProcessCreated { .. } => {
+                                ("process", "created".to_string(), 1.0, "#2ecc71")
+                            }
+                            RuntimeEdge::LibraryLoaded { .. } => {
+                                ("mmap", "loaded".to_string(), 1.0, "#95a5a6")
+                            }
+                            RuntimeEdge::Vulnerable { confidence } => (
+                                "vulnerable",
+                                "vulnerable".to_string(),
+                                *confidence,
+                                "#e74c3c",
+                            ),
+                            RuntimeEdge::NetworkConnection { total_bytes, .. } => {
+                                ("network", format!("{} bytes", total_bytes), 1.5, "#3498db")
+                            }
+                            RuntimeEdge::ExploitationAttempt { evidence, .. } => {
+                                ("exploitation", evidence.clone(), 2.0, "#e74c3c")
+                            }
+                            RuntimeEdge::UsesTechnique { .. } => {
+                                ("technique", "uses".to_string(), 1.0, "#9b59b6")
+                            }
+                        };
 
                         edges.push(ExportEdge {
                             from: from_id,
@@ -456,19 +456,19 @@ impl GraphExporter {
     fn extract_edges_from_graph(graph: &RuntimeAttackGraph) -> Vec<ExportEdge> {
         let mut export_edges = Vec::new();
 
-    for (from, to, edge) in graph.edges() {
-        let (edge_type, label): (&str, String) = match edge {
-            RuntimeEdge::ProcessCreated { .. } => ("process", "created".to_string()),
-            RuntimeEdge::LibraryLoaded { .. } => ("mmap", "loaded".to_string()),
-            RuntimeEdge::Vulnerable { .. } => ("vulnerable", "vulnerable".to_string()),
-            RuntimeEdge::NetworkConnection { total_bytes, .. } => {
-                ("network", format!("{} bytes", total_bytes))
-            }
-            RuntimeEdge::ExploitationAttempt { evidence, .. } => {
-                ("exploitation", evidence.clone())
-            }
-            RuntimeEdge::UsesTechnique { .. } => ("technique", "uses".to_string()),
-        };
+        for (from, to, edge) in graph.edges() {
+            let (edge_type, label): (&str, String) = match edge {
+                RuntimeEdge::ProcessCreated { .. } => ("process", "created".to_string()),
+                RuntimeEdge::LibraryLoaded { .. } => ("mmap", "loaded".to_string()),
+                RuntimeEdge::Vulnerable { .. } => ("vulnerable", "vulnerable".to_string()),
+                RuntimeEdge::NetworkConnection { total_bytes, .. } => {
+                    ("network", format!("{} bytes", total_bytes))
+                }
+                RuntimeEdge::ExploitationAttempt { evidence, .. } => {
+                    ("exploitation", evidence.clone())
+                }
+                RuntimeEdge::UsesTechnique { .. } => ("technique", "uses".to_string()),
+            };
 
             export_edges.push(ExportEdge {
                 from,
