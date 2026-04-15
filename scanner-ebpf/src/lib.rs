@@ -4,6 +4,7 @@
 //! eBPF Scanner - Production-grade runtime security
 //!
 //! Architecture:
+//! - events.rs: Unified SecurityEvent schema
 //! - tracepoints.rs: Syscall monitoring (execve, openat, mmap)
 //! - kprobes.rs: Kernel function hooks (tcp_connect, socket operations)
 //! - process.rs: Process context tracking (PID → metadata)
@@ -11,6 +12,7 @@
 //! - network.rs: Network intelligence (connections, transfers)
 
 // Module declarations
+mod events;
 mod kprobes;
 mod libraries;
 mod network;
@@ -18,6 +20,7 @@ mod process;
 mod tracepoints;
 
 // Re-export for use by probe handlers
+pub use events::*;
 pub use kprobes::*;
 pub use libraries::*;
 pub use network::*;
