@@ -22,8 +22,8 @@ static LAST_EVENT: HashMap<u64, u64> = HashMap::with_max_entries(100000, 0);
 /// Emits unified SecurityEvent with all context pre-filled
 #[tracepoint(category = "syscalls", name = "sys_enter_execve")]
 pub fn trace_enter_execve(_ctx: TracePointContext) -> u32 {
-    let pid_tgid = unsafe { bpf_get_current_pid_tgid() };
-    let uid_gid = unsafe { bpf_get_current_uid_gid() };
+    let pid_tgid = bpf_get_current_pid_tgid();
+    let uid_gid = bpf_get_current_uid_gid();
     let cgroup_id = unsafe { bpf_get_current_cgroup_id() };
     let pid = pid_tgid as u32;
 
@@ -43,11 +43,11 @@ pub fn trace_enter_execve(_ctx: TracePointContext) -> u32 {
     }
 
     // Update rate limit timestamp
-    let _ = unsafe { LAST_EVENT.insert(&pid_u64, &now, 0) };
+    let _ = LAST_EVENT.insert(&pid_u64, &now, 0);
 
     // Get command name
     let mut comm = [0u8; 16];
-    if let Ok(name) = unsafe { bpf_get_current_comm() } {
+    if let Ok(name) = bpf_get_current_comm() {
         let len = name.len().min(16);
         comm[..len].copy_from_slice(&name[..len]);
     }

@@ -2,8 +2,7 @@
 /// Stores rich process metadata for attack graph correlation
 use aya_ebpf::{
     helpers::{
-        bpf_get_current_cgroup_id, bpf_get_current_comm, bpf_get_current_pid_tgid,
-        bpf_get_current_uid_gid, bpf_ktime_get_ns,
+        bpf_get_current_cgroup_id, bpf_get_current_comm, bpf_get_current_uid_gid, bpf_ktime_get_ns,
     },
     macros::map,
     maps::HashMap,
@@ -25,11 +24,11 @@ pub struct ProcessInfo {
 
 /// Process context map: PID -> ProcessInfo
 #[map(name = "PROCESS_CONTEXT")]
-static mut PROCESS_CONTEXT: HashMap<u32, ProcessInfo> = HashMap::with_max_entries(10240, 0);
+static PROCESS_CONTEXT: HashMap<u32, ProcessInfo> = HashMap::with_max_entries(10240, 0);
 
 /// Process parent tracking: PID -> Parent PID
 #[map(name = "PROCESS_PARENT")]
-static mut PROCESS_PARENT: HashMap<u32, u32> = HashMap::with_max_entries(10240, 0);
+static PROCESS_PARENT: HashMap<u32, u32> = HashMap::with_max_entries(10240, 0);
 
 /// Track process creation with rich metadata
 pub unsafe fn track_process(pid: u32, tgid: u32, ppid: u32) {

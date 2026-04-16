@@ -82,7 +82,7 @@ pub fn track_tcp_connect(pid: u32, saddr: u32, sport: u16, daddr: u32, dport: u1
 
     // SAFETY: Verified-safe map insert
     // Ignore result - connection tracking is best-effort
-    let _ = unsafe { CONNECTIONS.insert(&key, &conn, 0) };
+    let _ = CONNECTIONS.insert(&key, &conn, 0);
 
     // Initialize process network activity
     let activity = NetworkActivity {
@@ -99,7 +99,7 @@ pub fn track_tcp_connect(pid: u32, saddr: u32, sport: u16, daddr: u32, dport: u1
     };
 
     // SAFETY: Verified-safe map insert
-    let _ = unsafe { PROCESS_NETWORK.insert(&pid, &activity, 0) };
+    let _ = PROCESS_NETWORK.insert(&pid, &activity, 0);
 }
 
 /// Update data transfer stats
@@ -114,7 +114,7 @@ pub fn update_data_transfer(pid: u32, bytes: u64, is_send: bool) {
             activity.bytes_recv = activity.bytes_recv.saturating_add(bytes);
         }
         // SAFETY: Verified-safe map update
-        let _ = unsafe { PROCESS_NETWORK.insert(&pid, &activity, 0) };
+        let _ = PROCESS_NETWORK.insert(&pid, &activity, 0);
     }
 }
 
@@ -168,5 +168,5 @@ pub fn mark_suspicious(saddr: u32, sport: u16, daddr: u32, dport: u16) {
         .unwrap_or(1);
 
     // SAFETY: Verified-safe map insert
-    let _ = unsafe { SUSPICIOUS_CONNS.insert(&key, &count, 0) };
+    let _ = SUSPICIOUS_CONNS.insert(&key, &count, 0);
 }

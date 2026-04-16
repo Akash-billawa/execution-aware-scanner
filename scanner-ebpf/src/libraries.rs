@@ -33,7 +33,7 @@ static LIBRARY_SEEN: HashMap<u64, u64> = HashMap::with_max_entries(100000, 0);
 #[kprobe(function = "do_mmap")]
 pub fn trace_do_mmap(_ctx: ProbeContext) -> i32 {
     // Get process context
-    let pid_tgid = unsafe { bpf_get_current_pid_tgid() };
+    let pid_tgid = bpf_get_current_pid_tgid();
     let cgroup_id = unsafe { bpf_get_current_cgroup_id() };
     let pid = pid_tgid as u32;
 
@@ -63,8 +63,8 @@ pub fn trace_do_mmap(_ctx: ProbeContext) -> i32 {
 
     // SAFETY: Map inserts are verified by the eBPF verifier
     // These are best-effort - ignore errors if map is full
-    let _ = unsafe { LIBRARY_SEEN.insert(&key, &now, 0) };
-    let _ = unsafe { LOADED_LIBRARIES.insert(&key, &load, 0) };
+    let _ = LIBRARY_SEEN.insert(&key, &now, 0);
+    let _ = LOADED_LIBRARIES.insert(&key, &load, 0);
 
     // Note: Logging disabled in production to reduce overhead
     // use aya_log_ebpf::info;

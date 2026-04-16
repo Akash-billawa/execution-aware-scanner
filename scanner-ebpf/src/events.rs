@@ -228,13 +228,13 @@ pub static DROPPED_BY_KIND: HashMap<u8, u64> = HashMap::with_max_entries(8, 0);
 /// This is the key function - attaches ALL context at kernel source
 #[inline(always)]
 pub fn create_base_event(kind: EventKind) -> SecurityEvent {
-    let pid_tgid = unsafe { bpf_get_current_pid_tgid() };
-    let uid_gid = unsafe { bpf_get_current_uid_gid() };
+    let pid_tgid = bpf_get_current_pid_tgid();
+    let uid_gid = bpf_get_current_uid_gid();
     let cgroup_id = unsafe { bpf_get_current_cgroup_id() };
 
     // Get command name
     let mut comm = [0u8; 16];
-    if let Ok(name) = unsafe { bpf_get_current_comm() } {
+    if let Ok(name) = bpf_get_current_comm() {
         let len = name.len().min(16);
         comm[..len].copy_from_slice(&name[..len]);
     }
@@ -259,7 +259,7 @@ pub fn create_base_event(kind: EventKind) -> SecurityEvent {
 pub fn emit_event(event: SecurityEvent) {
     // Reserve space in ring buffer
     // The entry is automatically submitted when the guard drops
-    if let Some(mut entry) = unsafe { SECURITY_EVENTS.reserve(0) } {
+    if let Some(mut entry) = SECURITY_EVENTS.reserve(0) {
         entry.write(event);
         // Entry is submitted automatically when it goes out of scope
 
@@ -269,7 +269,7 @@ pub fn emit_event(event: SecurityEvent) {
             .copied()
             .unwrap_or(0)
             .saturating_add(1);
-        let _ = unsafe { EVENT_COUNT_BY_KIND.insert(&kind_u8, &count, 0) };
+        let _ = EVENT_COUNT_BY_KIND.insert(&kind_u8, &count, 0);
     } else {
         // Track dropped event
         let kind_u8 = event.kind as u8;
@@ -277,7 +277,7 @@ pub fn emit_event(event: SecurityEvent) {
             .copied()
             .unwrap_or(0)
             .saturating_add(1);
-        let _ = unsafe { DROPPED_BY_KIND.insert(&kind_u8, &dropped, 0) };
+        let _ = DROPPED_BY_KIND.insert(&kind_u8, &dropped, 0);
     }
 }
 
