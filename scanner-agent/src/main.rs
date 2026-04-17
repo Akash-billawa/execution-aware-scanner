@@ -85,6 +85,7 @@ use scanner_common::Finding;
 use state::StateStore;
 use std::collections::BTreeMap;
 use std::sync::Arc;
+use tracing::error;
 use vuln_detector::VulnDetector;
 
 // eBPF types only with ebpf feature

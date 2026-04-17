@@ -140,10 +140,10 @@ impl BpfLoader {
             .try_into()
             .map_err(|e| ScannerError::Bpf(format!("Failed to load {}: {}", prog_name, e)))?;
 
-        prog.load()
+        prog.load(hook, &aya::Btf::default())
             .map_err(|e| ScannerError::Bpf(format!("Failed to load {}: {}", prog_name, e)))?;
 
-        prog.attach(hook)
+        prog.attach()
             .map_err(|e| ScannerError::Bpf(format!("Failed to attach {}: {}", prog_name, e)))?;
 
         tracing::info!("Attached LSM hook: {}", hook);

@@ -112,31 +112,29 @@ impl TcEnforcer {
     }
 
     /// Unblock IP address
-    pub async fn unblock_ip(&mut self, ip: Ipv4Addr) -> Result<(), ScannerError> {
-        let ip_u32 = u32::from(ip);
+pub async fn unblock_ip(&mut self, ip: Ipv4Addr) -> Result<(), ScannerError> {
+    let ip_u32 = u32::from(ip);
 
-        if let Some(ref mut bpf) = self.bpf {
+if let Some(ref mut bpf) = self.bpf {
             // Remove from XDP map
             if let Ok(mut xdp_blocked) = bpf
-                .map_mut("XDP_BLOCKED_IPS")
-                .ok_or_else(|| ScannerError::Bpf("XDP map not found".to_string()))?
-                .try_into::<BpfHashMap<_, u32, u8>>()
+            .map_mut("XDP_BLOCKED_IPS")
+            .ok_or_else(|| ScannerError::Bpf("XDP map not found".to_string()))?
             {
                 let _ = xdp_blocked.remove(&ip_u32);
             }
 
             // Remove from TC map
             if let Ok(mut blocked) = bpf
-                .map_mut("BLOCKED_IPS")
-                .ok_or_else(|| ScannerError::Bpf("TC map not found".to_string()))?
-                .try_into::<BpfHashMap<_, u32, u8>>()
+            .map_mut("BLOCKED_IPS")
+            .ok_or_else(|| ScannerError::Bpf("TC map not found".to_string()))?
             {
                 let _ = blocked.remove(&ip_u32);
             }
         }
 
-        self.blocked_ips.remove(&ip_u32);
-        info!("Unblocked IP {}", ip);
+    self.blocked_ips.remove(&ip_u32);
+    info!("Unblocked IP {}", ip);
 
         Ok(())
     }
@@ -250,14 +248,13 @@ impl TcEnforcer {
         self.blocked_ports.len()
     }
 
-    /// Flush all rules (for reload)
-    pub async fn flush_all(&mut self) -> Result<(), ScannerError> {
-        // Clear XDP blocked IPs
-        if let Some(ref mut bpf) = self.bpf {
+/// Flush all rules (for reload)
+pub async fn flush_all(&mut self) -> Result<(), ScannerError> {
+    // Clear XDP blocked IPs
+if let Some(ref mut bpf) = self.bpf {
             if let Ok(mut xdp_blocked) = bpf
-                .map_mut("XDP_BLOCKED_IPS")
-                .ok_or_else(|| ScannerError::Bpf("XDP map not found".to_string()))?
-                .try_into::<BpfHashMap<_, u32, u8>>()
+            .map_mut("XDP_BLOCKED_IPS")
+            .ok_or_else(|| ScannerError::Bpf("XDP map not found".to_string()))?
             {
                 // Iterate and remove all
                 // Note: Aya doesn't expose iteration yet, so we'd need to track separately
@@ -267,9 +264,8 @@ impl TcEnforcer {
             }
 
             if let Ok(mut blocked) = bpf
-                .map_mut("BLOCKED_IPS")
-                .ok_or_else(|| ScannerError::Bpf("TC map not found".to_string()))?
-                .try_into::<BpfHashMap<_, u32, u8>>()
+            .map_mut("BLOCKED_IPS")
+            .ok_or_else(|| ScannerError::Bpf("TC map not found".to_string()))?
             {
                 for ip in &self.blocked_ips {
                     let _ = blocked.remove(ip);
@@ -277,11 +273,11 @@ impl TcEnforcer {
             }
         }
 
-        self.blocked_ips.clear();
-        self.blocked_ports.clear();
-        self.blocked_domains.clear();
+    self.blocked_ips.clear();
+    self.blocked_ports.clear();
+    self.blocked_domains.clear();
 
-        info!("Flushed all TC/XDP enforcement rules");
+    info!("Flushed all TC/XDP enforcement rules");
         Ok(())
     }
 

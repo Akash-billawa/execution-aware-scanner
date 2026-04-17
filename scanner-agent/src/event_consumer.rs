@@ -190,123 +190,126 @@ impl EventConsumer {
         Ok(())
     }
 
-    async fn consume_exec_batch(
-        &mut self,
-        state_store: &Arc<Mutex<StateStore>>,
-        metrics: &Metrics,
-    ) -> Result<usize, ScannerError> {
-        let mut count = 0;
+async fn consume_exec_batch(
+    &mut self,
+    state_store: &Arc<Mutex<StateStore>>,
+    metrics: &Metrics,
+) -> Result<usize, ScannerError> {
+    let mut count = 0;
 
-        while let Some(data) = self.exec_rb.next() {
-            self.events_received += 1;
+    while let Some(item) = self.exec_rb.next() {
+        self.events_received += 1;
+        let data_bytes = item.data().to_vec();
 
-            match self.parse_exec_event(&data) {
-                Some(event) => {
-                    // Apply filtering
-                    if self.should_filter_exec(&event) {
-                        self.events_filtered += 1;
-                        continue;
-                    }
-
-                    self.exec_batch.push(event);
-                    count += 1;
-
-                    // Update state immediately for hot path
-                    let mut store = state_store.lock().await;
-                    store.apply_exec(&event);
-                    drop(store);
-
-                    metrics.inc_events();
+        match self.parse_exec_event(&data_bytes) {
+            Some(event) => {
+                // Apply filtering
+                if self.should_filter_exec(&event) {
+                    self.events_filtered += 1;
+                    continue;
                 }
-                None => {
-                    self.events_dropped += 1;
-                    warn!("Failed to parse exec event");
-                }
+
+                self.exec_batch.push(event);
+                count += 1;
+
+                // Update state immediately for hot path
+                let mut store = state_store.lock().await;
+                store.apply_exec(&event);
+                drop(store);
+
+                metrics.inc_events();
             }
-
-            // Stop if batch is full
-            if self.exec_batch.len() >= self.batch_size {
-                break;
+            None => {
+                self.events_dropped += 1;
+                warn!("Failed to parse exec event");
             }
         }
 
-        Ok(count)
+        // Stop if batch is full
+        if self.exec_batch.len() >= self.batch_size {
+            break;
+        }
     }
+
+    Ok(count)
+}
 
     async fn consume_file_batch(
         &mut self,
         state_store: &Arc<Mutex<StateStore>>,
         metrics: &Metrics,
-    ) -> Result<usize, ScannerError> {
-        let mut count = 0;
+) -> Result<usize, ScannerError> {
+    let mut count = 0;
 
-        while let Some(data) = self.file_rb.next() {
-            self.events_received += 1;
+    while let Some(item) = self.file_rb.next() {
+        self.events_received += 1;
+        let data_bytes = item.data().to_vec();
 
-            match self.parse_file_event(&data) {
-                Some(event) => {
-                    if self.should_filter_file(&event) {
-                        self.events_filtered += 1;
-                        continue;
-                    }
-
-                    self.file_batch.push(event);
-                    count += 1;
-
-                    let mut store = state_store.lock().await;
-                    store.apply_file(&event);
-                    drop(store);
-
-                    metrics.inc_events();
+        match self.parse_file_event(&data_bytes) {
+            Some(event) => {
+                if self.should_filter_file(&event) {
+                    self.events_filtered += 1;
+                    continue;
                 }
-                None => {
-                    self.events_dropped += 1;
-                }
+
+                self.file_batch.push(event);
+                count += 1;
+
+                let mut store = state_store.lock().await;
+                store.apply_file(&event);
+                drop(store);
+
+                metrics.inc_events();
             }
-
-            if self.file_batch.len() >= self.batch_size {
-                break;
+            None => {
+                self.events_dropped += 1;
             }
         }
 
-        Ok(count)
+        if self.file_batch.len() >= self.batch_size {
+            break;
+        }
     }
 
-    async fn consume_net_batch(
-        &mut self,
-        state_store: &Arc<Mutex<StateStore>>,
-        metrics: &Metrics,
-    ) -> Result<usize, ScannerError> {
-        let mut count = 0;
+    Ok(count)
+}
 
-        while let Some(data) = self.net_rb.next() {
-            self.events_received += 1;
+async fn consume_net_batch(
+&mut self,
+    state_store: &Arc<Mutex<StateStore>>,
+    metrics: &Metrics,
+) -> Result<usize, ScannerError> {
+    let mut count = 0;
 
-            match self.parse_net_event(&data) {
-                Some(event) => {
-                    if self.should_filter_net(&event) {
-                        self.events_filtered += 1;
-                        continue;
-                    }
+    while let Some(item) = self.net_rb.next() {
+        self.events_received += 1;
+        let data_bytes = item.data().to_vec();
 
-                    self.net_batch.push(event);
-                    count += 1;
-
-                    let mut store = state_store.lock().await;
-                    store.apply_net(&event);
-                    drop(store);
-
-                    metrics.inc_events();
+        match self.parse_net_event(&data_bytes) {
+            Some(event) => {
+                if self.should_filter_net(&event) {
+                    self.events_filtered += 1;
+                    continue;
                 }
-                None => {
-                    self.events_dropped += 1;
-                }
+
+                self.net_batch.push(event);
+                count += 1;
+
+                let mut store = state_store.lock().await;
+                store.apply_net(&event);
+                drop(store);
+
+                metrics.inc_events();
             }
-
-            if self.net_batch.len() >= self.batch_size {
-                break;
+            None => {
+                self.events_dropped += 1;
             }
         }
+
+        if self.net_batch.len() >= self.batch_size {
+            break;
+        }
+    }
 
         Ok(count)
     }
@@ -420,11 +423,11 @@ impl EventConsumer {
                     .await;
             }
 
-            // Emit graph updates for library loads
-            if event.kind == EventKind::Mmap && is_shared_library(&path) {
-                // Get process info from cgroup resolver
-                let resolver = cgroup_resolver.lock().await;
-                let process_name = if let Some((_, pid)) = resolver.resolve(event.cgroup_id).await {
+// Emit graph updates for library loads
+    if event.kind == EventKind::Mmap && is_shared_library(&path) {
+        // Get process info from cgroup resolver
+        let mut resolver = cgroup_resolver.lock().await;
+        let process_name = if let Some((_, pid)) = resolver.resolve(event.cgroup_id).await {
                     format!("pid-{}", pid)
                 } else {
                     "unknown".to_string()
@@ -488,11 +491,11 @@ impl EventConsumer {
                 .await;
             }
 
-            // Emit graph update for network connections
-            if event.kind == EventKind::Connect {
-                // Get process info
-                let resolver = cgroup_resolver.lock().await;
-                let process_name = if let Some((_, pid)) = resolver.resolve(event.cgroup_id).await {
+// Emit graph update for network connections
+    if event.kind == EventKind::Connect {
+        // Get process info
+        let mut resolver = cgroup_resolver.lock().await;
+        let process_name = if let Some((_, pid)) = resolver.resolve(event.cgroup_id).await {
                     format!("pid-{}", pid)
                 } else {
                     "unknown".to_string()
@@ -624,9 +627,9 @@ impl EventConsumer {
         let mut metrics = KernelMetrics::default();
 
         // Read dropped events counter
-        if let Ok(dropped_map) = HashMap::<_, u32, u64>::try_from(
+        if let Ok(dropped_map) = HashMap::try_from(
             bpf.map("DROPPED_EVENTS")
-                .ok_or("DROPPED_EVENTS map not found")?,
+                .ok_or_else(|| ScannerError::Bpf("DROPPED_EVENTS map not found".to_string()))?,
         ) {
             if let Ok(count) = dropped_map.get(&0, 0) {
                 metrics.dropped_events = *count;
@@ -634,8 +637,9 @@ impl EventConsumer {
         }
 
         // Read event counter
-        if let Ok(count_map) = HashMap::<_, u32, u64>::try_from(
-            bpf.map("EVENT_COUNT").ok_or("EVENT_COUNT map not found")?,
+        if let Ok(count_map) = HashMap::try_from(
+            bpf.map("EVENT_COUNT")
+                .ok_or_else(|| ScannerError::Bpf("EVENT_COUNT map not found".to_string()))?,
         ) {
             if let Ok(count) = count_map.get(&0, 0) {
                 metrics.events_emitted = *count;
