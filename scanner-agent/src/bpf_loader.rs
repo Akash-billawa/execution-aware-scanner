@@ -1,7 +1,7 @@
 #![cfg(feature = "ebpf")]
 
 use crate::error::ScannerError;
-use aya::maps::RingBuf;
+use aya::maps::{MapData, RingBuf};
 use aya::programs::{KProbe, Lsm, TracePoint, Xdp};
 use aya::Ebpf;
 
@@ -80,7 +80,9 @@ impl BpfLoader {
         Ok(())
     }
 
-    pub fn open_ringbufs(&mut self) -> Result<(RingBuf, RingBuf, RingBuf), ScannerError> {
+    pub fn open_ringbufs(
+        &mut self,
+    ) -> Result<(RingBuf<MapData>, RingBuf<MapData>, RingBuf<MapData>), ScannerError> {
         let exec_rb = self.take_ringbuf("EXEC_EVENTS")?;
         let file_rb = self.take_ringbuf("FILE_EVENTS")?;
         let net_rb = self.take_ringbuf("NET_EVENTS")?;
@@ -148,7 +150,7 @@ impl BpfLoader {
         Ok(())
     }
 
-    fn take_ringbuf(&mut self, name: &str) -> Result<RingBuf, ScannerError> {
+    fn take_ringbuf(&mut self, name: &str) -> Result<RingBuf<MapData>, ScannerError> {
         let map = self
             .bpf
             .take_map(name)
