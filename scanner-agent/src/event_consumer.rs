@@ -199,7 +199,7 @@ async fn consume_exec_batch(
 
     while let Some(item) = self.exec_rb.next() {
         self.events_received += 1;
-        let data_bytes = item.data().to_vec();
+        let data_bytes = item.as_slice().to_vec();
 
         match self.parse_exec_event(&data_bytes) {
             Some(event) => {
@@ -243,7 +243,7 @@ async fn consume_exec_batch(
 
     while let Some(item) = self.file_rb.next() {
         self.events_received += 1;
-        let data_bytes = item.data().to_vec();
+        let data_bytes = item.as_slice().to_vec();
 
         match self.parse_file_event(&data_bytes) {
             Some(event) => {
@@ -283,7 +283,7 @@ async fn consume_net_batch(
 
     while let Some(item) = self.net_rb.next() {
         self.events_received += 1;
-        let data_bytes = item.data().to_vec();
+        let data_bytes = item.as_slice().to_vec();
 
         match self.parse_net_event(&data_bytes) {
             Some(event) => {
@@ -627,7 +627,7 @@ async fn consume_net_batch(
         let mut metrics = KernelMetrics::default();
 
         // Read dropped events counter
-        if let Ok(dropped_map) = HashMap::try_from(
+        if let Ok(dropped_map) = HashMap::<_, u32, u64>::try_from(
             bpf.map("DROPPED_EVENTS")
                 .ok_or_else(|| ScannerError::Bpf("DROPPED_EVENTS map not found".to_string()))?,
         ) {
@@ -637,7 +637,7 @@ async fn consume_net_batch(
         }
 
         // Read event counter
-        if let Ok(count_map) = HashMap::try_from(
+        if let Ok(count_map) = HashMap::<_, u32, u64>::try_from(
             bpf.map("EVENT_COUNT")
                 .ok_or_else(|| ScannerError::Bpf("EVENT_COUNT map not found".to_string()))?,
         ) {
