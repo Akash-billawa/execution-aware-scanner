@@ -197,12 +197,17 @@ impl EventConsumer {
     ) -> Result<usize, ScannerError> {
         let mut count = 0;
 
-        while let Some(item) = self.exec_rb.next() {
+        loop {
+            let item = match self.exec_rb.next() {
+                Some(i) => i,
+                None => break,
+            };
             self.events_received += 1;
             // Extract data and drop item immediately to release borrow
             let data_bytes: Vec<u8> = (*item).to_vec();
+            drop(item);
 
-            // Parse and process in a separate scope
+            // Parse and process after item is dropped
             let event_opt = self.parse_exec_event(&data_bytes);
 
             if let Some(event) = event_opt {
@@ -242,12 +247,17 @@ impl EventConsumer {
     ) -> Result<usize, ScannerError> {
         let mut count = 0;
 
-        while let Some(item) = self.file_rb.next() {
+        loop {
+            let item = match self.file_rb.next() {
+                Some(i) => i,
+                None => break,
+            };
             self.events_received += 1;
             // Extract data and drop item immediately to release borrow
             let data_bytes: Vec<u8> = (*item).to_vec();
+            drop(item);
 
-            // Parse and process in a separate scope
+            // Parse and process after item is dropped
             let event_opt = self.parse_file_event(&data_bytes);
 
             if let Some(event) = event_opt {
@@ -283,12 +293,17 @@ impl EventConsumer {
     ) -> Result<usize, ScannerError> {
         let mut count = 0;
 
-        while let Some(item) = self.net_rb.next() {
+        loop {
+            let item = match self.net_rb.next() {
+                Some(i) => i,
+                None => break,
+            };
             self.events_received += 1;
             // Extract data and drop item immediately to release borrow
             let data_bytes: Vec<u8> = (*item).to_vec();
+            drop(item);
 
-            // Parse and process in a separate scope
+            // Parse and process after item is dropped
             let event_opt = self.parse_net_event(&data_bytes);
 
             if let Some(event) = event_opt {
