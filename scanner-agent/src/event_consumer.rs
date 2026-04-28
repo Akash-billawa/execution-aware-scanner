@@ -190,126 +190,126 @@ impl EventConsumer {
         Ok(())
     }
 
-async fn consume_exec_batch(
-    &mut self,
-    state_store: &Arc<Mutex<StateStore>>,
-    metrics: &Metrics,
-) -> Result<usize, ScannerError> {
-    let mut count = 0;
+    async fn consume_exec_batch(
+        &mut self,
+        state_store: &Arc<Mutex<StateStore>>,
+        metrics: &Metrics,
+    ) -> Result<usize, ScannerError> {
+        let mut count = 0;
 
-    while let Some(item) = self.exec_rb.next() {
-        self.events_received += 1;
-        let data_bytes = (*item).to_vec();
+        while let Some(item) = self.exec_rb.next() {
+            self.events_received += 1;
+            let data_bytes = (*item).to_vec();
 
-        match self.parse_exec_event(&data_bytes) {
-            Some(event) => {
-                // Apply filtering
-                if self.should_filter_exec(&event) {
-                    self.events_filtered += 1;
-                    continue;
+            match self.parse_exec_event(&data_bytes) {
+                Some(event) => {
+                    // Apply filtering
+                    if self.should_filter_exec(&event) {
+                        self.events_filtered += 1;
+                        continue;
+                    }
+
+                    self.exec_batch.push(event);
+                    count += 1;
+
+                    // Update state immediately for hot path
+                    let mut store = state_store.lock().await;
+                    store.apply_exec(&event);
+                    drop(store);
+
+                    metrics.inc_events();
                 }
-
-                self.exec_batch.push(event);
-                count += 1;
-
-                // Update state immediately for hot path
-                let mut store = state_store.lock().await;
-                store.apply_exec(&event);
-                drop(store);
-
-                metrics.inc_events();
+                None => {
+                    self.events_dropped += 1;
+                    warn!("Failed to parse exec event");
+                }
             }
-            None => {
-                self.events_dropped += 1;
-                warn!("Failed to parse exec event");
+
+            // Stop if batch is full
+            if self.exec_batch.len() >= self.batch_size {
+                break;
             }
         }
 
-        // Stop if batch is full
-        if self.exec_batch.len() >= self.batch_size {
-            break;
-        }
+        Ok(count)
     }
-
-    Ok(count)
-}
 
     async fn consume_file_batch(
         &mut self,
         state_store: &Arc<Mutex<StateStore>>,
         metrics: &Metrics,
-) -> Result<usize, ScannerError> {
-    let mut count = 0;
+    ) -> Result<usize, ScannerError> {
+        let mut count = 0;
 
-    while let Some(item) = self.file_rb.next() {
-        self.events_received += 1;
-        let data_bytes = (*item).to_vec();
+        while let Some(item) = self.file_rb.next() {
+            self.events_received += 1;
+            let data_bytes = (*item).to_vec();
 
-        match self.parse_file_event(&data_bytes) {
-            Some(event) => {
-                if self.should_filter_file(&event) {
-                    self.events_filtered += 1;
-                    continue;
+            match self.parse_file_event(&data_bytes) {
+                Some(event) => {
+                    if self.should_filter_file(&event) {
+                        self.events_filtered += 1;
+                        continue;
+                    }
+
+                    self.file_batch.push(event);
+                    count += 1;
+
+                    let mut store = state_store.lock().await;
+                    store.apply_file(&event);
+                    drop(store);
+
+                    metrics.inc_events();
                 }
-
-                self.file_batch.push(event);
-                count += 1;
-
-                let mut store = state_store.lock().await;
-                store.apply_file(&event);
-                drop(store);
-
-                metrics.inc_events();
+                None => {
+                    self.events_dropped += 1;
+                }
             }
-            None => {
-                self.events_dropped += 1;
+
+            if self.file_batch.len() >= self.batch_size {
+                break;
             }
         }
 
-        if self.file_batch.len() >= self.batch_size {
-            break;
-        }
+        Ok(count)
     }
 
-    Ok(count)
-}
+    async fn consume_net_batch(
+        &mut self,
+        state_store: &Arc<Mutex<StateStore>>,
+        metrics: &Metrics,
+    ) -> Result<usize, ScannerError> {
+        let mut count = 0;
 
-async fn consume_net_batch(
-&mut self,
-    state_store: &Arc<Mutex<StateStore>>,
-    metrics: &Metrics,
-) -> Result<usize, ScannerError> {
-    let mut count = 0;
+        while let Some(item) = self.net_rb.next() {
+            self.events_received += 1;
+            let data_bytes = (*item).to_vec();
 
-    while let Some(item) = self.net_rb.next() {
-        self.events_received += 1;
-        let data_bytes = (*item).to_vec();
+            match self.parse_net_event(&data_bytes) {
+                Some(event) => {
+                    if self.should_filter_net(&event) {
+                        self.events_filtered += 1;
+                        continue;
+                    }
 
-        match self.parse_net_event(&data_bytes) {
-            Some(event) => {
-                if self.should_filter_net(&event) {
-                    self.events_filtered += 1;
-                    continue;
+                    self.net_batch.push(event);
+                    count += 1;
+
+                    let mut store = state_store.lock().await;
+                    store.apply_net(&event);
+                    drop(store);
+
+                    metrics.inc_events();
                 }
-
-                self.net_batch.push(event);
-                count += 1;
-
-                let mut store = state_store.lock().await;
-                store.apply_net(&event);
-                drop(store);
-
-                metrics.inc_events();
+                None => {
+                    self.events_dropped += 1;
+                }
             }
-            None => {
-                self.events_dropped += 1;
+
+            if self.net_batch.len() >= self.batch_size {
+                break;
             }
         }
-
-        if self.net_batch.len() >= self.batch_size {
-            break;
-        }
-    }
 
         Ok(count)
     }
@@ -423,11 +423,11 @@ async fn consume_net_batch(
                     .await;
             }
 
-// Emit graph updates for library loads
-    if event.kind == EventKind::Mmap && is_shared_library(&path) {
-        // Get process info from cgroup resolver
-        let mut resolver = cgroup_resolver.lock().await;
-        let process_name = if let Some((_, pid)) = resolver.resolve(event.cgroup_id).await {
+            // Emit graph updates for library loads
+            if event.kind == EventKind::Mmap && is_shared_library(&path) {
+                // Get process info from cgroup resolver
+                let mut resolver = cgroup_resolver.lock().await;
+                let process_name = if let Some((_, pid)) = resolver.resolve(event.cgroup_id).await {
                     format!("pid-{}", pid)
                 } else {
                     "unknown".to_string()
@@ -491,11 +491,11 @@ async fn consume_net_batch(
                 .await;
             }
 
-// Emit graph update for network connections
-    if event.kind == EventKind::Connect {
-        // Get process info
-        let mut resolver = cgroup_resolver.lock().await;
-        let process_name = if let Some((_, pid)) = resolver.resolve(event.cgroup_id).await {
+            // Emit graph update for network connections
+            if event.kind == EventKind::Connect {
+                // Get process info
+                let mut resolver = cgroup_resolver.lock().await;
+                let process_name = if let Some((_, pid)) = resolver.resolve(event.cgroup_id).await {
                     format!("pid-{}", pid)
                 } else {
                     "unknown".to_string()

@@ -112,29 +112,30 @@ impl TcEnforcer {
     }
 
     /// Unblock IP address
-pub async fn unblock_ip(&mut self, ip: Ipv4Addr) -> Result<(), ScannerError> {
-    let ip_u32 = u32::from(ip);
+    pub async fn unblock_ip(&mut self, ip: Ipv4Addr) -> Result<(), ScannerError> {
+        let ip_u32 = u32::from(ip);
 
-if let Some(ref mut bpf) = self.bpf {
+        if let Some(ref mut bpf) = self.bpf {
             // Remove from XDP map
-if let Ok(mut xdp_blocked) = BpfHashMap::<_, u32, u8>::try_from(
-            bpf.map_mut("XDP_BLOCKED_IPS")
-                .ok_or_else(|| ScannerError::Bpf("XDP_BLOCKED_IPS map not found".to_string()))?,
-        ) {
-            let _ = xdp_blocked.remove(&ip_u32);
+            if let Ok(mut xdp_blocked) =
+                BpfHashMap::<_, u32, u8>::try_from(bpf.map_mut("XDP_BLOCKED_IPS").ok_or_else(
+                    || ScannerError::Bpf("XDP_BLOCKED_IPS map not found".to_string()),
+                )?)
+            {
+                let _ = xdp_blocked.remove(&ip_u32);
+            }
+
+            // Remove from TC map
+            if let Ok(mut blocked) = BpfHashMap::<_, u32, u8>::try_from(
+                bpf.map_mut("BLOCKED_IPS")
+                    .ok_or_else(|| ScannerError::Bpf("BLOCKED_IPS map not found".to_string()))?,
+            ) {
+                let _ = blocked.remove(&ip_u32);
+            }
         }
 
-        // Remove from TC map
-        if let Ok(mut blocked) = BpfHashMap::<_, u32, u8>::try_from(
-            bpf.map_mut("BLOCKED_IPS")
-                .ok_or_else(|| ScannerError::Bpf("BLOCKED_IPS map not found".to_string()))?,
-        ) {
-            let _ = blocked.remove(&ip_u32);
-        }
-    }
-
-    self.blocked_ips.remove(&ip_u32);
-    info!("Unblocked IP {}", ip);
+        self.blocked_ips.remove(&ip_u32);
+        info!("Unblocked IP {}", ip);
 
         Ok(())
     }
@@ -248,34 +249,35 @@ if let Ok(mut xdp_blocked) = BpfHashMap::<_, u32, u8>::try_from(
         self.blocked_ports.len()
     }
 
-/// Flush all rules (for reload)
-pub async fn flush_all(&mut self) -> Result<(), ScannerError> {
-    // Clear XDP blocked IPs
-if let Some(ref mut bpf) = self.bpf {
-if let Ok(mut xdp_blocked) = BpfHashMap::<_, u32, u8>::try_from(
-            bpf.map_mut("XDP_BLOCKED_IPS")
-                .ok_or_else(|| ScannerError::Bpf("XDP_BLOCKED_IPS map not found".to_string()))?,
-        ) {
-            for ip in &self.blocked_ips {
-                let _ = xdp_blocked.remove(ip);
+    /// Flush all rules (for reload)
+    pub async fn flush_all(&mut self) -> Result<(), ScannerError> {
+        // Clear XDP blocked IPs
+        if let Some(ref mut bpf) = self.bpf {
+            if let Ok(mut xdp_blocked) =
+                BpfHashMap::<_, u32, u8>::try_from(bpf.map_mut("XDP_BLOCKED_IPS").ok_or_else(
+                    || ScannerError::Bpf("XDP_BLOCKED_IPS map not found".to_string()),
+                )?)
+            {
+                for ip in &self.blocked_ips {
+                    let _ = xdp_blocked.remove(ip);
+                }
+            }
+
+            if let Ok(mut blocked) = BpfHashMap::<_, u32, u8>::try_from(
+                bpf.map_mut("BLOCKED_IPS")
+                    .ok_or_else(|| ScannerError::Bpf("BLOCKED_IPS map not found".to_string()))?,
+            ) {
+                for ip in &self.blocked_ips {
+                    let _ = blocked.remove(ip);
+                }
             }
         }
 
-        if let Ok(mut blocked) = BpfHashMap::<_, u32, u8>::try_from(
-            bpf.map_mut("BLOCKED_IPS")
-                .ok_or_else(|| ScannerError::Bpf("BLOCKED_IPS map not found".to_string()))?,
-        ) {
-            for ip in &self.blocked_ips {
-                let _ = blocked.remove(ip);
-            }
-        }
-        }
+        self.blocked_ips.clear();
+        self.blocked_ports.clear();
+        self.blocked_domains.clear();
 
-    self.blocked_ips.clear();
-    self.blocked_ports.clear();
-    self.blocked_domains.clear();
-
-    info!("Flushed all TC/XDP enforcement rules");
+        info!("Flushed all TC/XDP enforcement rules");
         Ok(())
     }
 
