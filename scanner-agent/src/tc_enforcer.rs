@@ -119,7 +119,7 @@ if let Some(ref mut bpf) = self.bpf {
             // Remove from XDP map
 if let Ok(mut xdp_blocked) = BpfHashMap::<_, u32, u8>::try_from(
             bpf.map_mut("XDP_BLOCKED_IPS")
-                .map_err(|e| ScannerError::Bpf(format!("XDP map error: {}", e)))?,
+                .ok_or_else(|| ScannerError::Bpf("XDP_BLOCKED_IPS map not found".to_string()))?,
         ) {
             let _ = xdp_blocked.remove(&ip_u32);
         }
@@ -127,7 +127,7 @@ if let Ok(mut xdp_blocked) = BpfHashMap::<_, u32, u8>::try_from(
         // Remove from TC map
         if let Ok(mut blocked) = BpfHashMap::<_, u32, u8>::try_from(
             bpf.map_mut("BLOCKED_IPS")
-                .map_err(|e| ScannerError::Bpf(format!("TC map error: {}", e)))?,
+                .ok_or_else(|| ScannerError::Bpf("BLOCKED_IPS map not found".to_string()))?,
         ) {
             let _ = blocked.remove(&ip_u32);
         }
@@ -254,7 +254,7 @@ pub async fn flush_all(&mut self) -> Result<(), ScannerError> {
 if let Some(ref mut bpf) = self.bpf {
 if let Ok(mut xdp_blocked) = BpfHashMap::<_, u32, u8>::try_from(
             bpf.map_mut("XDP_BLOCKED_IPS")
-                .map_err(|e| ScannerError::Bpf(format!("XDP map error: {}", e)))?,
+                .ok_or_else(|| ScannerError::Bpf("XDP_BLOCKED_IPS map not found".to_string()))?,
         ) {
             for ip in &self.blocked_ips {
                 let _ = xdp_blocked.remove(ip);
@@ -263,7 +263,7 @@ if let Ok(mut xdp_blocked) = BpfHashMap::<_, u32, u8>::try_from(
 
         if let Ok(mut blocked) = BpfHashMap::<_, u32, u8>::try_from(
             bpf.map_mut("BLOCKED_IPS")
-                .map_err(|e| ScannerError::Bpf(format!("TC map error: {}", e)))?,
+                .ok_or_else(|| ScannerError::Bpf("BLOCKED_IPS map not found".to_string()))?,
         ) {
             for ip in &self.blocked_ips {
                 let _ = blocked.remove(ip);

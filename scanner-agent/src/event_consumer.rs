@@ -199,7 +199,7 @@ async fn consume_exec_batch(
 
     while let Some(item) = self.exec_rb.next() {
         self.events_received += 1;
-        let data_bytes = item.as_slice().to_vec();
+        let data_bytes = (*item).to_vec();
 
         match self.parse_exec_event(&data_bytes) {
             Some(event) => {
@@ -243,7 +243,7 @@ async fn consume_exec_batch(
 
     while let Some(item) = self.file_rb.next() {
         self.events_received += 1;
-        let data_bytes = item.as_slice().to_vec();
+        let data_bytes = (*item).to_vec();
 
         match self.parse_file_event(&data_bytes) {
             Some(event) => {
@@ -283,7 +283,7 @@ async fn consume_net_batch(
 
     while let Some(item) = self.net_rb.next() {
         self.events_received += 1;
-        let data_bytes = item.as_slice().to_vec();
+        let data_bytes = (*item).to_vec();
 
         match self.parse_net_event(&data_bytes) {
             Some(event) => {
@@ -632,7 +632,7 @@ async fn consume_net_batch(
                 .ok_or_else(|| ScannerError::Bpf("DROPPED_EVENTS map not found".to_string()))?,
         ) {
             if let Ok(count) = dropped_map.get(&0, 0) {
-                metrics.dropped_events = *count;
+                metrics.dropped_events = count;
             }
         }
 
@@ -642,7 +642,7 @@ async fn consume_net_batch(
                 .ok_or_else(|| ScannerError::Bpf("EVENT_COUNT map not found".to_string()))?,
         ) {
             if let Ok(count) = count_map.get(&0, 0) {
-                metrics.events_emitted = *count;
+                metrics.events_emitted = count;
             }
         }
 
