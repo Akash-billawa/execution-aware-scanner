@@ -199,30 +199,31 @@ impl EventConsumer {
 
         while let Some(item) = self.exec_rb.next() {
             self.events_received += 1;
-            let data_bytes = (*item).to_vec();
+            // Extract data and drop item immediately to release borrow
+            let data_bytes: Vec<u8> = (*item).to_vec();
 
-            match self.parse_exec_event(&data_bytes) {
-                Some(event) => {
-                    // Apply filtering
-                    if self.should_filter_exec(&event) {
-                        self.events_filtered += 1;
-                        continue;
-                    }
+            // Parse and process in a separate scope
+            let event_opt = self.parse_exec_event(&data_bytes);
 
-                    self.exec_batch.push(event);
-                    count += 1;
-
-                    // Update state immediately for hot path
-                    let mut store = state_store.lock().await;
-                    store.apply_exec(&event);
-                    drop(store);
-
-                    metrics.inc_events();
+            if let Some(event) = event_opt {
+                // Apply filtering
+                if self.should_filter_exec(&event) {
+                    self.events_filtered += 1;
+                    continue;
                 }
-                None => {
-                    self.events_dropped += 1;
-                    warn!("Failed to parse exec event");
-                }
+
+                self.exec_batch.push(event);
+                count += 1;
+
+                // Update state immediately for hot path
+                let mut store = state_store.lock().await;
+                store.apply_exec(&event);
+                drop(store);
+
+                metrics.inc_events();
+            } else {
+                self.events_dropped += 1;
+                warn!("Failed to parse exec event");
             }
 
             // Stop if batch is full
@@ -243,27 +244,28 @@ impl EventConsumer {
 
         while let Some(item) = self.file_rb.next() {
             self.events_received += 1;
-            let data_bytes = (*item).to_vec();
+            // Extract data and drop item immediately to release borrow
+            let data_bytes: Vec<u8> = (*item).to_vec();
 
-            match self.parse_file_event(&data_bytes) {
-                Some(event) => {
-                    if self.should_filter_file(&event) {
-                        self.events_filtered += 1;
-                        continue;
-                    }
+            // Parse and process in a separate scope
+            let event_opt = self.parse_file_event(&data_bytes);
 
-                    self.file_batch.push(event);
-                    count += 1;
-
-                    let mut store = state_store.lock().await;
-                    store.apply_file(&event);
-                    drop(store);
-
-                    metrics.inc_events();
+            if let Some(event) = event_opt {
+                if self.should_filter_file(&event) {
+                    self.events_filtered += 1;
+                    continue;
                 }
-                None => {
-                    self.events_dropped += 1;
-                }
+
+                self.file_batch.push(event);
+                count += 1;
+
+                let mut store = state_store.lock().await;
+                store.apply_file(&event);
+                drop(store);
+
+                metrics.inc_events();
+            } else {
+                self.events_dropped += 1;
             }
 
             if self.file_batch.len() >= self.batch_size {
@@ -283,27 +285,28 @@ impl EventConsumer {
 
         while let Some(item) = self.net_rb.next() {
             self.events_received += 1;
-            let data_bytes = (*item).to_vec();
+            // Extract data and drop item immediately to release borrow
+            let data_bytes: Vec<u8> = (*item).to_vec();
 
-            match self.parse_net_event(&data_bytes) {
-                Some(event) => {
-                    if self.should_filter_net(&event) {
-                        self.events_filtered += 1;
-                        continue;
-                    }
+            // Parse and process in a separate scope
+            let event_opt = self.parse_net_event(&data_bytes);
 
-                    self.net_batch.push(event);
-                    count += 1;
-
-                    let mut store = state_store.lock().await;
-                    store.apply_net(&event);
-                    drop(store);
-
-                    metrics.inc_events();
+            if let Some(event) = event_opt {
+                if self.should_filter_net(&event) {
+                    self.events_filtered += 1;
+                    continue;
                 }
-                None => {
-                    self.events_dropped += 1;
-                }
+
+                self.net_batch.push(event);
+                count += 1;
+
+                let mut store = state_store.lock().await;
+                store.apply_net(&event);
+                drop(store);
+
+                metrics.inc_events();
+            } else {
+                self.events_dropped += 1;
             }
 
             if self.net_batch.len() >= self.batch_size {
