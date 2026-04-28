@@ -6,7 +6,10 @@ license.workspace = true
 
 [features]
 default = ["ebpf"]
+# eBPF support - disable when building scanner-ebpf separately or on non-Linux platforms
 ebpf = ["dep:aya", "dep:aya-log"]
+# Security: Build without eBPF runtime support (for cross-platform builds)
+no-ebpf = []
 remediator-proto = ["dep:tonic"]
 
 [dependencies]
@@ -38,6 +41,8 @@ uuid.workspace = true
 # eBPF dependencies - optional, enabled via ebpf feature
 aya = { workspace = true, optional = true }
 aya-log = { workspace = true, optional = true }
+# eBPF program bytecode - built separately for BPF target
+scanner-ebpf = { path = "../scanner-ebpf", optional = true }
 
 [dev-dependencies]
 tokio-test = "0.4"

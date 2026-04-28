@@ -2,7 +2,7 @@
 members = [
     "scanner-agent",
     "scanner-common",
-    "scanner-ebpf",
+    # "scanner-ebpf",  # Built separately for Linux/BPF target only
 ]
 resolver = "2"
 
