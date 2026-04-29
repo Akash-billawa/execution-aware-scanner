@@ -74,12 +74,12 @@ chmod +x scanner-agent
 
 ```bash
 # Download pre-compiled eBPF program
-wget https://github.com/example/execution-aware-scanner/releases/latest/download/scanner-ebpf.o
+wget https://github.com/example/execution-aware-scanner/releases/latest/download/scanner-ebpf.so
 
 # Place in correct location
 sudo mkdir -p /opt/scanner
-sudo cp scanner-ebpf.o /opt/scanner/
-sudo chmod 644 /opt/scanner/scanner-ebpf.o
+sudo cp scanner-ebpf.so /opt/scanner/
+sudo chmod 644 /opt/scanner/scanner-ebpf.so
 ```
 
 #### Step 3: Configure
@@ -93,7 +93,7 @@ sudo tee /etc/scanner/scanner.yaml <<EOF
 scanner:
   sbom_dir: "/var/lib/scanner/sboms"
   seccomp_output_dir: "/var/lib/scanner/seccomp"
-  bpf_object_path: "/opt/scanner/scanner-ebpf.o"
+  bpf_object_path: "/opt/scanner/scanner-ebpf.so"
 
 risk:
   minimum_cvss: 4.0
@@ -244,7 +244,7 @@ cargo +nightly build --manifest-path scanner-ebpf/Cargo.toml --target bpfel-unkn
 
 # Copy eBPF object
 sudo mkdir -p /opt/scanner
-sudo cp target/bpfel-unknown-none/release/libscanner_ebpf.so /opt/scanner/scanner-ebpf.o
+sudo cp target/bpfel-unknown-none/release/libscanner_ebpf.so /opt/scanner/scanner-ebpf.so
 
 # Build userspace agent with Linux eBPF support
 cargo build --release -p scanner-agent --features ebpf

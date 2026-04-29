@@ -66,7 +66,7 @@ spec:
         {{- end }}
         - name: load-ebpf
           image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
-          command: ['sh', '-c', 'cp /opt/scanner/scanner-ebpf.o /host/scanner/ || true']
+          command: ['sh', '-c', 'cp /opt/scanner/scanner-ebpf.so /host/scanner/ || true']
           volumeMounts:
             - name: scanner-state
               mountPath: /host/scanner
@@ -234,6 +234,6 @@ metadata:
   labels:
     {{- include "execution-aware-scanner.labels" $ | nindent 4 }}
 binaryData:
-  scanner-ebpf.o: |
-    {{ $.Files.Get "ebpf/scanner-ebpf.o" | b64enc | nindent 4 }}
+  scanner-ebpf.so: |
+    {{ $.Files.Get "ebpf/scanner-ebpf.so" | b64enc | nindent 4 }}
 {{- end }}

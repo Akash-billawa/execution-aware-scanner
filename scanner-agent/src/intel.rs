@@ -190,9 +190,7 @@ impl IntelFeed {
             .await?;
 
         if !response.status().is_success() {
-            return Err(ScannerError::Http(reqwest::Error::from(
-                response.error_for_status().unwrap_err(),
-            )));
+            return Err(ScannerError::Http(response.error_for_status().unwrap_err()));
         }
 
         let catalog = response.json::<KevCatalog>().await?;
@@ -217,9 +215,7 @@ impl IntelFeed {
             .await?;
 
         if !response.status().is_success() {
-            return Err(ScannerError::Http(reqwest::Error::from(
-                response.error_for_status().unwrap_err(),
-            )));
+            return Err(ScannerError::Http(response.error_for_status().unwrap_err()));
         }
 
         let data = response.json::<EpssResponse>().await?;
@@ -406,7 +402,7 @@ mod tests {
         };
 
         let score = assessment.threat_score();
-        assert!(score > 90.0, "High threat score expected, got {}", score);
+        assert!(score > 90.0, "High threat score expected, got {score}");
         assert!(!assessment.is_stale());
 
         let stale_assessment = CveRiskAssessment {

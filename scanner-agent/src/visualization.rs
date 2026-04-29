@@ -41,7 +41,7 @@ impl std::str::FromStr for GraphFormat {
             "json" => Ok(GraphFormat::Json),
             "dot" => Ok(GraphFormat::Dot),
             "grafana" => Ok(GraphFormat::Grafana),
-            _ => Err(format!("Unknown format: {}", s)),
+            _ => Err(format!("Unknown format: {s}")),
         }
     }
 }
@@ -177,7 +177,7 @@ impl GraphExporter {
             ));
         }
 
-        dot.push_str("\n");
+        dot.push('\n');
 
         // Add edges
         for edge in Self::extract_edges_from_graph(graph) {
@@ -270,16 +270,16 @@ impl GraphExporter {
                     let (node_type, label, color, icon) = match node {
                         RuntimeNode::Process { pid, name, .. } => (
                             "process",
-                            format!("{} (PID {})", name, pid),
+                            format!("{name} (PID {pid})"),
                             "#3498db",
                             "process",
                         ),
                         RuntimeNode::Library { path, .. } => {
-                            let name = path.split('/').last().unwrap_or(path);
+                            let name = path.split('/').next_back().unwrap_or(path);
                             ("library", name.to_string(), "#2ecc71", "library")
                         }
                         RuntimeNode::Network { ip, port, .. } => {
-                            ("network", format!("{}:{}", ip, port), "#f39c12", "globe")
+                            ("network", format!("{ip}:{port}"), "#f39c12", "globe")
                         }
                         RuntimeNode::Vulnerability(v) => (
                             "vulnerability",
@@ -333,7 +333,7 @@ impl GraphExporter {
                                 "#e74c3c",
                             ),
                             RuntimeEdge::NetworkConnection { total_bytes, .. } => {
-                                ("network", format!("{} bytes", total_bytes), 1.5, "#3498db")
+                                ("network", format!("{total_bytes} bytes"), 1.5, "#3498db")
                             }
                             RuntimeEdge::ExploitationAttempt { evidence, .. } => {
                                 ("exploitation", evidence.clone(), 2.0, "#e74c3c")
@@ -420,19 +420,19 @@ impl GraphExporter {
 
             let label = match node {
                 RuntimeNode::Process { pid, name, .. } => {
-                    format!("{} (PID {})", name, pid)
+                    format!("{name} (PID {pid})")
                 }
                 RuntimeNode::Library { path, cve_ids } => {
-                    let name = path.split('/').last().unwrap_or(path);
+                    let name = path.split('/').next_back().unwrap_or(path);
                     let cve_str = if cve_ids.is_empty() {
                         "".to_string()
                     } else {
                         format!(" [{}]", cve_ids.join(", "))
                     };
-                    format!("{}{}", name, cve_str)
+                    format!("{name}{cve_str}")
                 }
                 RuntimeNode::Network { ip, port, protocol } => {
-                    format!("{} {}:{}", protocol, ip, port)
+                    format!("{protocol} {ip}:{port}")
                 }
                 RuntimeNode::Vulnerability(v) => {
                     format!("{} (CVSS {:.1})", v.cve_id, v.cvss)
@@ -462,7 +462,7 @@ impl GraphExporter {
                 RuntimeEdge::LibraryLoaded { .. } => ("mmap", "loaded".to_string()),
                 RuntimeEdge::Vulnerable { .. } => ("vulnerable", "vulnerable".to_string()),
                 RuntimeEdge::NetworkConnection { total_bytes, .. } => {
-                    ("network", format!("{} bytes", total_bytes))
+                    ("network", format!("{total_bytes} bytes"))
                 }
                 RuntimeEdge::ExploitationAttempt { evidence, .. } => {
                     ("exploitation", evidence.clone())

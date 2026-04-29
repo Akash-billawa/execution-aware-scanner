@@ -67,7 +67,7 @@ spec:
             - name: SCANNER__RUNTIME__SECCOMP_OUTPUT_DIR
               value: /var/lib/scanner/seccomp
             - name: SCANNER__BPF__OBJECT_PATH
-              value: /opt/scanner/scanner-ebpf.o
+              value: /opt/scanner/scanner-ebpf.so
           ports:
             - name: metrics
               containerPort: 9898

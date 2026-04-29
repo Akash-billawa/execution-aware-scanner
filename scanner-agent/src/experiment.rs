@@ -55,6 +55,7 @@ impl std::fmt::Display for ExperimentMode {
 
 /// Configuration for ablation studies (disable specific signals)
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Default)]
 pub struct AblationConfig {
     pub disable_mmap: bool,
     pub disable_tcp: bool,
@@ -65,19 +66,6 @@ pub struct AblationConfig {
     pub disable_suspicious_exec: bool,
 }
 
-impl Default for AblationConfig {
-    fn default() -> Self {
-        Self {
-            disable_mmap: false,
-            disable_tcp: false,
-            disable_udp: false,
-            disable_ssl: false,
-            disable_dns: false,
-            disable_mprotect: false,
-            disable_suspicious_exec: false,
-        }
-    }
-}
 
 impl AblationConfig {
     /// Check if a signal type is disabled
@@ -278,12 +266,12 @@ mod tests {
         let gating = ConfidenceGating::default();
 
         // Should gate: high EPSS, KEV, high signal boost
-        assert!(gating.should_gate(0.8, true, 2.5, &vec!["mmap".to_string(), "ssl".to_string()]));
+        assert!(gating.should_gate(0.8, true, 2.5, &["mmap".to_string(), "ssl".to_string()]));
 
         // Should not gate: low EPSS
-        assert!(!gating.should_gate(0.5, true, 2.5, &vec!["mmap".to_string()]));
+        assert!(!gating.should_gate(0.5, true, 2.5, &["mmap".to_string()]));
 
         // Should not gate: missing required signal
-        assert!(!gating.should_gate(0.8, true, 2.5, &vec!["tcp".to_string()]));
+        assert!(!gating.should_gate(0.8, true, 2.5, &["tcp".to_string()]));
     }
 }

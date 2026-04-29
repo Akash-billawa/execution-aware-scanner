@@ -153,7 +153,7 @@ impl ExecutionProofCollector {
                     },
                     event.pid,
                     process_name,
-                    format!("Vulnerable library {} accessed via {}", path, operation),
+                    format!("Vulnerable library {path} accessed via {operation}"),
                     confidence,
                 );
             }
@@ -243,7 +243,7 @@ impl ExecutionProofCollector {
         confidence: ConfidenceLevel,
     ) {
         // Convert confidence to string before moving
-        let confidence_str = format!("{:?}", confidence);
+        let confidence_str = format!("{confidence:?}");
 
         let evidence = ExecutionEvidence {
             cve_id: cve_id.to_string(),

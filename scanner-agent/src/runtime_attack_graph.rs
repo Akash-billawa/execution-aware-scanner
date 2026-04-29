@@ -59,11 +59,11 @@ impl RuntimeNode {
     /// Get node ID for indexing
     pub fn node_id(&self) -> String {
         match self {
-            RuntimeNode::Process { pid, name, .. } => format!("proc:{}:{}", pid, name),
-            RuntimeNode::Library { path, .. } => format!("lib:{}", path),
-            RuntimeNode::Network { ip, port, .. } => format!("net:{}:{}", ip, port),
+            RuntimeNode::Process { pid, name, .. } => format!("proc:{pid}:{name}"),
+            RuntimeNode::Library { path, .. } => format!("lib:{path}"),
+            RuntimeNode::Network { ip, port, .. } => format!("net:{ip}:{port}"),
             RuntimeNode::Vulnerability(v) => format!("vuln:{}", v.cve_id),
-            RuntimeNode::Technique { name, .. } => format!("tech:{}", name),
+            RuntimeNode::Technique { name, .. } => format!("tech:{name}"),
         }
     }
 }
@@ -104,7 +104,7 @@ impl AttackPath {
     pub fn to_summary(&self) -> AttackPathSummary {
         AttackPathSummary {
             path_id: self.path_id.clone(),
-            node_types: self.nodes.iter().map(|n| format!("{:?}", n)).collect(),
+            node_types: self.nodes.iter().map(|n| format!("{n:?}")).collect(),
             node_count: self.nodes.len(),
             confidence: self.confidence,
             risk_score: self.risk_score,
@@ -248,7 +248,7 @@ impl RuntimeAttackGraph {
         self.process_connections
             .entry(pid)
             .or_default()
-            .push(event.clone());
+            .push(*event);
     }
 
     /// Associate CVE with library
@@ -326,7 +326,7 @@ impl RuntimeAttackGraph {
         nodes.push(vuln_node);
 
         // Find library nodes with this CVE
-        let vuln_idx = self.node_indices.get(&format!("vuln:{}", cve_id));
+        let vuln_idx = self.node_indices.get(&format!("vuln:{cve_id}"));
 
         if let Some(&vuln_idx) = vuln_idx {
             // Get libraries linked to this CVE
@@ -351,7 +351,7 @@ impl RuntimeAttackGraph {
                         RuntimeEdge::Vulnerable { confidence: 0.95 },
                     ));
 
-                    indicators.push(format!("Vulnerable library: {:?}", lib_node));
+                    indicators.push(format!("Vulnerable library: {lib_node:?}"));
                 }
             }
         }

@@ -70,7 +70,7 @@ impl Default for AppConfig {
     fn default() -> Self {
         Self {
             bpf: BpfConfig {
-                object_path: "./dist/scanner-ebpf.o".to_string(),
+                object_path: "./dist/scanner-ebpf.so".to_string(),
             },
             metrics: MetricsConfig {
                 bind_addr: "0.0.0.0:9898".to_string(),

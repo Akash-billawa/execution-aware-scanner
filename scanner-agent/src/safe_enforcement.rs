@@ -9,8 +9,10 @@ use std::time::{Duration, Instant};
 
 /// Enforcement modes - graduated response
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[derive(Default)]
 pub enum EnforcementMode {
     /// Only log and report (default)
+    #[default]
     Audit,
     /// Create alerts but don't block
     Warn,
@@ -18,11 +20,6 @@ pub enum EnforcementMode {
     Enforce,
 }
 
-impl Default for EnforcementMode {
-    fn default() -> Self {
-        EnforcementMode::Audit
-    }
-}
 
 /// Enforcement decision with rationale
 #[derive(Debug, Clone)]
@@ -135,21 +132,20 @@ impl SafeEnforcer {
         // Check cooldown
         if let Some(until) = self.cooldown_until {
             if Instant::now() < until {
-                return Ok(format!("Enforcement cooldown active until {:?}", until));
+                return Ok(format!("Enforcement cooldown active until {until:?}"));
             }
         }
 
         let rollback = match &action {
             ActionType::SeccompProfile { profile_path } => {
-                format!("kubectl delete seccompprofile {}", profile_path)
+                format!("kubectl delete seccompprofile {profile_path}")
             }
             ActionType::NetworkBlock { ip, port } => {
-                format!("tc filter del dev eth0 protocol ip prio 1 u32 match ip dst {} match ip dport {} 0xffff", ip, port)
+                format!("tc filter del dev eth0 protocol ip prio 1 u32 match ip dst {ip} match ip dport {port} 0xffff")
             }
             ActionType::Quarantine { namespace, pod } => {
                 format!(
-                    "kubectl label pods {} -n {} security.execution-aware-scanner/quarantine-",
-                    pod, namespace
+                    "kubectl label pods {pod} -n {namespace} security.execution-aware-scanner/quarantine-"
                 )
             }
         };
@@ -179,17 +175,15 @@ impl SafeEnforcer {
             Some(action) => {
                 if let Some(cmd) = &action.rollback_command {
                     tracing::info!("Rollback command: {}", cmd);
-                    Ok(format!("To rollback, execute: {}", cmd))
+                    Ok(format!("To rollback, execute: {cmd}"))
                 } else {
                     Err(ScannerError::Bpf(format!(
-                        "No rollback command recorded for {}",
-                        cve_id
+                        "No rollback command recorded for {cve_id}"
                     )))
                 }
             }
             None => Err(ScannerError::Bpf(format!(
-                "No enforcement found for {}",
-                cve_id
+                "No enforcement found for {cve_id}"
             ))),
         }
     }

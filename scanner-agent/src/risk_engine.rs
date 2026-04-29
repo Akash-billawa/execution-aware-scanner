@@ -79,7 +79,7 @@ impl ExfRiskEngine {
             cvss_component + epss_component + kev_component + runtime_component + signal_boost;
 
         // Clamp to 0-10 range with explicit type
-        (score as f32).min(10.0).max(0.0)
+        score.min(10.0).max(0.0)
     }
 
     /// Evaluate a signal and produce a finding if it meets thresholds
@@ -404,50 +404,19 @@ pub struct RiskSummary {
 }
 
 fn categorize_syscall(syscall: &str) -> String {
-    let categories: BTreeMap<&str, Vec<&str>> = [
-        ("memory", vec!["mmap", "munmap", "mprotect", "brk", "sbrk"]),
-        (
-            "file",
-            vec![
-                "openat", "openat2", "read", "write", "close", "fstat", "lseek",
-            ],
-        ),
-        (
-            "process",
-            vec![
-                "execve", "execveat", "clone", "fork", "vfork", "exit", "wait4",
-            ],
-        ),
-        (
-            "network",
-            vec![
-                "socket", "connect", "bind", "listen", "accept", "sendto", "recvfrom",
-            ],
-        ),
-        (
-            "signal",
-            vec![
-                "rt_sigaction",
-                "rt_sigprocmask",
-                "rt_sigreturn",
-                "kill",
-                "tkill",
-            ],
-        ),
-        ("time", vec!["clock_gettime", "gettimeofday", "nanosleep"]),
-    ]
-    .iter()
-    .cloned()
-    .collect();
-
-    for (category, syscalls) in categories {
-        if syscalls.contains(&syscall) {
-            return category.to_string();
-        }
+    match syscall {
+        "mmap" | "munmap" | "mprotect" | "brk" | "sbrk" => "memory".to_string(),
+        "openat" | "openat2" | "read" | "write" | "close" | "fstat" | "lseek" => "file".to_string(),
+        "execve" | "execveat" | "clone" | "fork" | "vfork" | "exit" | "wait4" => "process".to_string(),
+        "socket" | "connect" | "bind" | "listen" | "accept" | "sendto" | "recvfrom" => "network".to_string(),
+        "rt_sigaction" | "rt_sigprocmask" | "rt_sigreturn" | "kill" | "tkill" => "signal".to_string(),
+        "clock_gettime" | "gettimeofday" | "nanosleep" => "time".to_string(),
+        _ => "other".to_string(),
     }
-
-    "other".to_string()
 }
+
+// Backwards compatibility alias
+pub use ExfRiskEngine as RiskEngine;
 
 #[cfg(test)]
 mod tests {
@@ -480,8 +449,7 @@ mod tests {
         let score = engine.calculate_exf_score(&signal);
         assert!(
             score >= 9.0,
-            "Expected critical score >= 9.0, got {}",
-            score
+            "Expected critical score >= 9.0, got {score}"
         );
 
         // High: CVSS 8.0, EPSS 0.5, Not KEV, Reachable
@@ -498,9 +466,8 @@ mod tests {
 
         let score2 = engine.calculate_exf_score(&signal2);
         assert!(
-            score2 >= 7.0 && score2 < 9.0,
-            "Expected high score, got {}",
-            score2
+            (7.0..9.0).contains(&score2),
+            "Expected high score, got {score2}"
         );
     }
 
@@ -565,6 +532,3 @@ mod tests {
         assert_eq!(finding.unwrap().priority, Priority::High);
     }
 }
-
-// Backwards compatibility alias
-pub use ExfRiskEngine as RiskEngine;

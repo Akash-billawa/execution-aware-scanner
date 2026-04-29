@@ -108,7 +108,7 @@ spec:
               value: "/var/lib/scanner/seccomp"
             
             - name: SCANNER__BPF__OBJECT_PATH
-              value: "/opt/scanner/scanner-ebpf.o"
+              value: "/opt/scanner/scanner-ebpf.so"
             
             # Reliability configuration
             - name: SCANNER__RELIABILITY__CHANNEL_BUFFER_SIZE

@@ -113,7 +113,7 @@ impl WebhookExporter {
                 .header("X-Event-Type", "finding");
 
             if let Some(token) = &self.config.token {
-                request = request.header("Authorization", format!("Bearer {}", token));
+                request = request.header("Authorization", format!("Bearer {token}"));
             }
 
             match request.body(json.clone()).send().await {
@@ -142,7 +142,7 @@ impl WebhookExporter {
                     }
                 }
                 Err(e) => {
-                    let error = format!("Request failed: {}", e);
+                    let error = format!("Request failed: {e}");
                     warn!("Webhook error: {}", error);
                     last_error = Some(error);
                 }
@@ -193,7 +193,7 @@ impl WebhookExporter {
                 .header("X-Batch-Size", findings.len().to_string());
 
             if let Some(token) = &self.config.token {
-                request = request.header("Authorization", format!("Bearer {}", token));
+                request = request.header("Authorization", format!("Bearer {token}"));
             }
 
             match request.body(json.clone()).send().await {
@@ -222,7 +222,7 @@ impl WebhookExporter {
                     }
                 }
                 Err(e) => {
-                    let error = format!("Request failed: {}", e);
+                    let error = format!("Request failed: {e}");
                     warn!("Batch webhook error: {}", error);
                     last_error = Some(error);
                 }

@@ -429,66 +429,15 @@ impl EnforcementController {
 }
 
 fn categorize_syscall(syscall: &str) -> String {
-    let categories: HashMap<&str, Vec<&str>> = [
-        ("memory", vec!["mmap", "munmap", "mprotect", "brk", "sbrk"]),
-        (
-            "file",
-            vec![
-                "openat", "openat2", "read", "write", "close", "fstat", "lseek", "access",
-            ],
-        ),
-        (
-            "process",
-            vec![
-                "execve", "execveat", "clone", "fork", "vfork", "exit", "wait4", "getpid",
-            ],
-        ),
-        (
-            "network",
-            vec![
-                "socket",
-                "connect",
-                "bind",
-                "listen",
-                "accept",
-                "sendto",
-                "recvfrom",
-                "setsockopt",
-            ],
-        ),
-        (
-            "signal",
-            vec![
-                "rt_sigaction",
-                "rt_sigprocmask",
-                "rt_sigreturn",
-                "kill",
-                "tkill",
-                "tgkill",
-            ],
-        ),
-        (
-            "time",
-            vec![
-                "clock_gettime",
-                "gettimeofday",
-                "nanosleep",
-                "alarm",
-                "timer_create",
-            ],
-        ),
-    ]
-    .iter()
-    .cloned()
-    .collect();
-
-    for (category, syscalls) in categories {
-        if syscalls.contains(&syscall) {
-            return category.to_string();
-        }
+    match syscall {
+        "mmap" | "munmap" | "mprotect" | "brk" | "sbrk" => "memory".to_string(),
+        "openat" | "openat2" | "read" | "write" | "close" | "fstat" | "lseek" | "access" => "file".to_string(),
+        "execve" | "execveat" | "clone" | "fork" | "vfork" | "exit" | "wait4" | "getpid" => "process".to_string(),
+        "socket" | "connect" | "bind" | "listen" | "accept" | "sendto" | "recvfrom" | "setsockopt" => "network".to_string(),
+        "rt_sigaction" | "rt_sigprocmask" | "rt_sigreturn" | "kill" | "tkill" | "tgkill" => "signal".to_string(),
+        "clock_gettime" | "gettimeofday" | "nanosleep" | "alarm" | "timer_create" => "time".to_string(),
+        _ => "other".to_string(),
     }
-
-    "other".to_string()
 }
 
 fn ip_to_string(ip: u32) -> String {

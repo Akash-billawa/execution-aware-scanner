@@ -52,7 +52,7 @@ scanner:
   # Configuration paths
   sbomDir: /var/lib/scanner/sboms
   seccompOutputDir: /var/lib/scanner/seccomp
-  bpfObjectPath: /opt/scanner/scanner-ebpf.o
+  bpfObjectPath: /opt/scanner/scanner-ebpf.so
 
 # Metrics configuration
 metrics:

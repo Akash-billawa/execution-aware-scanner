@@ -150,7 +150,7 @@ impl FalsePositiveValidator {
         println!("╔═══════════════════════════════════════════════════════════════╗");
         println!("║  FALSE POSITIVE REDUCTION VALIDATION                        ║");
         println!("╚═══════════════════════════════════════════════════════════════╝");
-        println!("Target: {}", target_name);
+        println!("Target: {target_name}");
         println!("\n");
 
         // Baseline
@@ -384,7 +384,7 @@ impl TestDataGenerator {
 
 fn create_finding(cve: &str, priority: Priority, score: f32) -> Finding {
     Finding {
-        id: format!("finding-{}", cve),
+        id: format!("finding-{cve}"),
         detected_at: chrono::Utc::now(),
         identity: scanner_common::RuntimeIdentity {
             node_name: "test".to_string(),

@@ -91,7 +91,7 @@ docker run --rm --entrypoint /bin/sh \
   -c "ls -la /opt/scanner/"
 
 # Expected output:
-# scanner-ebpf.o
+# scanner-ebpf.so
 # /usr/local/bin/scanner-agent
 ```
 

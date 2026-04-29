@@ -337,7 +337,7 @@ impl StreamingEngine {
                     if from.starts_with("proc:") && to.starts_with("lib:") {
                         println!("[STREAM] mmap → {}", to.strip_prefix("lib:").unwrap_or(to));
                     } else if from.starts_with("proc:") && to.starts_with("net:") {
-                        println!("[STREAM] Network connection detected: {}", to);
+                        println!("[STREAM] Network connection detected: {to}");
                     }
                 }
             }
@@ -354,7 +354,7 @@ impl StreamingEngine {
                 );
 
                 if self.config.stream_json && *delta_bytes > 1024 {
-                    println!("[STREAM] Data transfer: +{} bytes", delta_bytes);
+                    println!("[STREAM] Data transfer: +{delta_bytes} bytes");
                 }
             }
             GraphUpdate::ConfidenceChanged { cve_id, old, new } => {
@@ -450,7 +450,7 @@ impl StreamingEngine {
         state: &mut StreamingState,
     ) {
         let delta = new - old;
-        let delta_str = format!("{:+.2}", delta);
+        let delta_str = format!("{delta:+.2}");
 
         // Emit PathUpdated
         if self.config.stream_json {
@@ -466,7 +466,7 @@ impl StreamingEngine {
 
             // Live confidence update
             if delta.abs() > 0.1 {
-                println!("[UPDATE] Path confidence {:.2} → {:.2}", old, new);
+                println!("[UPDATE] Path confidence {old:.2} → {new:.2}");
             }
         }
 
@@ -481,7 +481,7 @@ impl StreamingEngine {
             let output = StreamingOutput::Alert {
                 severity,
                 path_id: path_id.to_string(),
-                message: format!("CONFIDENCE THRESHOLD CROSSED: {:.2} → {:.2}", old, new),
+                message: format!("CONFIDENCE THRESHOLD CROSSED: {old:.2} → {new:.2}"),
                 confidence: new,
                 timestamp: Utc::now().timestamp(),
                 indicators: vec!["confidence_threshold_crossed".to_string()],
@@ -510,8 +510,7 @@ impl StreamingEngine {
 
         if self.config.stream_json {
             println!(
-                "[ALERT] Risk escalation for {}: +{:.2}",
-                path_id, risk_delta
+                "[ALERT] Risk escalation for {path_id}: +{risk_delta:.2}"
             );
         }
     }
@@ -640,7 +639,7 @@ pub async fn run_streaming_mode(
             loop {
                 ticker.tick().await;
                 counter += 1;
-                let path = format!("graph-snapshot-{}.json", counter);
+                let path = format!("graph-snapshot-{counter}.json");
                 if let Err(e) = engine_clone.export_graph(&path).await {
                     warn!(error = %e, "Failed to export graph");
                 }
@@ -679,7 +678,7 @@ pub async fn run_streaming_mode_with_webhooks(
             loop {
                 ticker.tick().await;
                 counter += 1;
-                let path = format!("graph-snapshot-{}.json", counter);
+                let path = format!("graph-snapshot-{counter}.json");
                 if let Err(e) = engine_clone.export_graph(&path).await {
                     warn!(error = %e, "Failed to export graph");
                 }

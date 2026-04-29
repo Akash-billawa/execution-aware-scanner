@@ -89,11 +89,11 @@ mod e2e_tests {
         let runtime_component = 2.0;
         let total_score = cvss_component + epss_component + kev_component + runtime_component;
 
-        println!("      → CVSS × 0.50     = {:.2}", cvss_component);
-        println!("      → EPSS × 10 × 0.30 = {:.2}", epss_component);
-        println!("      → KEV Bonus       = {:.2}", kev_component);
-        println!("      → Runtime Bonus   = {:.2}", runtime_component);
-        println!("      → TOTAL SCORE     = {:.1}/10", total_score);
+        println!("      → CVSS × 0.50     = {cvss_component:.2}");
+        println!("      → EPSS × 10 × 0.30 = {epss_component:.2}");
+        println!("      → KEV Bonus       = {kev_component:.2}");
+        println!("      → Runtime Bonus   = {runtime_component:.2}");
+        println!("      → TOTAL SCORE     = {total_score:.1}/10");
 
         // Stage 5: Enforcement
         println!("[5/5] Safe Enforcement");
@@ -135,12 +135,11 @@ mod e2e_tests {
             };
 
             println!(
-                "  {} ({}) - CVSS: {} - {} → {}",
-                cve, pkg, cvss, status, action
+                "  {cve} ({pkg}) - CVSS: {cvss} - {status} → {action}"
             );
         }
 
-        println!("\n  Total: {} critical enforcements", critical);
+        println!("\n  Total: {critical} critical enforcements");
         assert_eq!(critical, 1, "Should enforce 1 critical CVE");
         println!("\n✅ DVWA test: PASSED");
     }
@@ -180,8 +179,7 @@ mod e2e_tests {
             };
 
             println!(
-                "  {} ({}) - CVSS: {} - {} → {}",
-                cve, pkg, cvss, status, action
+                "  {cve} ({pkg}) - CVSS: {cvss} - {status} → {action}"
             );
         }
 

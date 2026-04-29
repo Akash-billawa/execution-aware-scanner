@@ -110,12 +110,12 @@ impl AttackGraph {
     /// Generate unique ID for node
     fn node_id(node: &AttackNode) -> String {
         match node {
-            AttackNode::External { ip, port } => format!("ext:{}:{}", ip, port),
+            AttackNode::External { ip, port } => format!("ext:{ip}:{port}"),
             AttackNode::Service {
                 name, namespace, ..
-            } => format!("svc:{}/{}", namespace, name),
-            AttackNode::Vulnerability { cve_id, .. } => format!("vuln:{}", cve_id),
-            AttackNode::Asset { name, asset_type } => format!("asset:{:?}:{}", asset_type, name),
+            } => format!("svc:{namespace}/{name}"),
+            AttackNode::Vulnerability { cve_id, .. } => format!("vuln:{cve_id}"),
+            AttackNode::Asset { name, asset_type } => format!("asset:{asset_type:?}:{name}"),
         }
     }
 
@@ -315,7 +315,7 @@ impl AttackPathAnalyzer {
 
                         // Add to attack path description
                         if let Some(node) = self.graph.get_node(*from) {
-                            attack_path.push(format!("{:?}", node));
+                            attack_path.push(format!("{node:?}"));
                         }
                     }
                 }
@@ -417,19 +417,19 @@ impl AttackPathAnalyzer {
         output.push_str("🎯 ENTRY POINTS:\n");
         for idx in &self.entry_points {
             if let Some(node) = self.graph.get_node(*idx) {
-                output.push_str(&format!("   → {:?}\n", node));
+                output.push_str(&format!("   → {node:?}\n"));
             }
         }
-        output.push_str("\n");
+        output.push('\n');
 
         // Critical assets
         output.push_str("💎 CRITICAL ASSETS:\n");
         for idx in &self.critical_assets {
             if let Some(node) = self.graph.get_node(*idx) {
-                output.push_str(&format!("   → {:?}\n", node));
+                output.push_str(&format!("   → {node:?}\n"));
             }
         }
-        output.push_str("\n");
+        output.push('\n');
 
         // Attack chains
         let chains = self.find_attack_chains();
@@ -447,12 +447,12 @@ impl AttackPathAnalyzer {
                     } else {
                         ""
                     };
-                    output.push_str(&format!("      {:?}{}\n", node, arrow));
+                    output.push_str(&format!("      {node:?}{arrow}\n"));
                 }
             }
         }
 
-        output.push_str("\n");
+        output.push('\n');
         output
     }
 }
@@ -486,19 +486,19 @@ impl Default for AttackGraph {
 impl fmt::Display for AttackNode {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            AttackNode::External { ip, port } => write!(f, "External({}:{ })", ip, port),
+            AttackNode::External { ip, port } => write!(f, "External({ip}:{port})"),
             AttackNode::Service {
                 name, namespace, ..
             } => {
-                write!(f, "{}/{}", namespace, name)
+                write!(f, "{namespace}/{name}")
             }
             AttackNode::Vulnerability {
                 cve_id, severity, ..
             } => {
-                write!(f, "{} ({})", cve_id, severity)
+                write!(f, "{cve_id} ({severity})")
             }
             AttackNode::Asset { name, asset_type } => {
-                write!(f, "{:?}({})", asset_type, name)
+                write!(f, "{asset_type:?}({name})")
             }
         }
     }
@@ -603,7 +603,7 @@ mod tests {
 
         let lateral = analyzer.find_lateral_movement();
         // Should be empty in simple test graph
-        assert!(lateral.is_empty() || lateral.len() > 0); // Either is OK
+        assert!(lateral.is_empty() || !lateral.is_empty()); // Either is OK
     }
 
     #[test]

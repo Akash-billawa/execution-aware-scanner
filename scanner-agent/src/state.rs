@@ -67,7 +67,7 @@ impl StateStore {
                 signal_type: SignalType::SuspiciousExec,
                 weight: 1.5,
                 timestamp_ns: event.timestamp_ns,
-                details: format!("Suspicious command: {}", cmd),
+                details: format!("Suspicious command: {cmd}"),
             });
         }
     }
@@ -92,7 +92,7 @@ impl StateStore {
                 signal_type: SignalType::LibraryLoaded,
                 weight: 2.0,
                 timestamp_ns: event.timestamp_ns,
-                details: format!("Library loaded: {}", path),
+                details: format!("Library loaded: {path}"),
             });
         }
 
@@ -102,7 +102,7 @@ impl StateStore {
                 signal_type: SignalType::SensitiveFileAccess,
                 weight: 1.0,
                 timestamp_ns: event.timestamp_ns,
-                details: format!("Sensitive file: {}", path),
+                details: format!("Sensitive file: {path}"),
             });
         }
 

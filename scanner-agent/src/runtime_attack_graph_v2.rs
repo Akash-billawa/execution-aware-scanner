@@ -81,11 +81,11 @@ pub enum RuntimeNode {
 impl RuntimeNode {
     pub fn node_id(&self) -> String {
         match self {
-            RuntimeNode::Process { pid, name, .. } => format!("proc:{}:{}", pid, name),
-            RuntimeNode::Library { path, .. } => format!("lib:{}", path),
-            RuntimeNode::Network { ip, port, .. } => format!("net:{}:{}", ip, port),
+            RuntimeNode::Process { pid, name, .. } => format!("proc:{pid}:{name}"),
+            RuntimeNode::Library { path, .. } => format!("lib:{path}"),
+            RuntimeNode::Network { ip, port, .. } => format!("net:{ip}:{port}"),
             RuntimeNode::Vulnerability(v) => format!("vuln:{}", v.cve_id),
-            RuntimeNode::Technique { name, .. } => format!("tech:{}", name),
+            RuntimeNode::Technique { name, .. } => format!("tech:{name}"),
         }
     }
 
@@ -340,8 +340,8 @@ impl RuntimeAttackGraph {
             .push((lib_path.to_string(), timestamp_ns));
 
         self.update_queue.push(GraphUpdate::EdgeAdded {
-            from: format!("proc:{}", pid),
-            to: format!("lib:{}", lib_path),
+            from: format!("proc:{pid}"),
+            to: format!("lib:{lib_path}"),
             edge: RuntimeEdge::LibraryLoaded {
                 timestamp_ns,
                 confidence: 1.0,
@@ -423,10 +423,10 @@ impl RuntimeAttackGraph {
         self.process_connections
             .entry(pid)
             .or_default()
-            .push((event.clone(), event.timestamp_ns));
+            .push((*event, event.timestamp_ns));
 
         self.update_queue.push(GraphUpdate::EdgeAdded {
-            from: format!("proc:{}", pid),
+            from: format!("proc:{pid}"),
             to: format!("net:{}:{}", daddr, event.dport),
             edge: RuntimeEdge::NetworkConnection {
                 timestamp_ns: event.timestamp_ns,
@@ -480,7 +480,7 @@ impl RuntimeAttackGraph {
                     *confidence = (*confidence + 0.05).min(0.95);
 
                     self.update_queue.push(GraphUpdate::EdgeUpdated {
-                        from: format!("proc:{}", pid),
+                        from: format!("proc:{pid}"),
                         to: format!("net:{}:{}", daddr, event.dport),
                         delta_bytes: event.data_size as u64,
                     });
@@ -504,7 +504,7 @@ impl RuntimeAttackGraph {
             for (lib_path, load_time) in libs {
                 // Check if within correlation window (long window for mmap)
                 if event_time > *load_time && event_time - *load_time < window_ns {
-                    let lib_id = format!("lib:{}", lib_path);
+                    let lib_id = format!("lib:{lib_path}");
                     if let Some(&lib_idx) = self.node_indices.get(&lib_id) {
                         let edge = RuntimeEdge::ExploitationAttempt {
                             confidence: confidence * 0.8, // Slightly lower confidence
@@ -570,7 +570,7 @@ impl RuntimeAttackGraph {
         let strong_signals = edges.iter().filter(|(_, _, e)| {
             matches!(e, RuntimeEdge::NetworkConnection { confidence, .. } if *confidence >= 0.9)
         }).count();
-        if strong_signals == 0 && edges.len() > 0 {
+        if strong_signals == 0 && !edges.is_empty() {
             confidence -= 0.1;
         }
 
@@ -666,7 +666,7 @@ impl RuntimeAttackGraph {
         nodes.push(vuln_node);
 
         // Build path from vulnerability
-        if let Some(&vuln_idx) = self.node_indices.get(&format!("vuln:{}", cve_id)) {
+        if let Some(&vuln_idx) = self.node_indices.get(&format!("vuln:{cve_id}")) {
             // Get vulnerable libraries
             for edge_ref in self.graph.edges(vuln_idx) {
                 if let RuntimeEdge::Vulnerable { .. } = edge_ref.weight() {

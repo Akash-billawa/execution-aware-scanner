@@ -73,7 +73,7 @@ impl VulnDetector {
                 image,
             ])
             .output()
-            .map_err(|e| ScannerError::Bpf(format!("Failed to run trivy: {}", e)))?;
+            .map_err(|e| ScannerError::Bpf(format!("Failed to run trivy: {e}")))?;
 
         if !output.status.success() {
             let stderr = String::from_utf8_lossy(&output.stderr);
@@ -99,7 +99,7 @@ impl VulnDetector {
                 sbom_path.to_str().unwrap_or("sbom.json"),
             ])
             .output()
-            .map_err(|e| ScannerError::Bpf(format!("Failed to run trivy sbom: {}", e)))?;
+            .map_err(|e| ScannerError::Bpf(format!("Failed to run trivy sbom: {e}")))?;
 
         if !output.status.success() {
             let stderr = String::from_utf8_lossy(&output.stderr);

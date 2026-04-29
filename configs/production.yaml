@@ -9,7 +9,7 @@ scanner:
     analysis_interval_secs: 30
   
   bpf:
-    object_path: "/opt/scanner/scanner-ebpf.o"
+    object_path: "/opt/scanner/scanner-ebpf.so"
   
   metrics:
     bind_addr: "0.0.0.0:9898"

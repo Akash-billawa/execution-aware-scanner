@@ -83,10 +83,9 @@ use risk_engine::RiskEngine;
 use safe_enforcement::{EnforcementMode, SafeEnforcer};
 use sbom::SbomStore;
 use scanner_common::Finding;
-use state::StateStore;
+use state::{StateStore, WorkloadState};
 use std::collections::BTreeMap;
 use std::sync::Arc;
-use tracing::error;
 use vuln_detector::VulnDetector;
 
 // eBPF types only on Linux with ebpf feature
@@ -104,14 +103,14 @@ use tc_enforcer::{TcEnforcer, ThreatIntelFeed};
 use tokio::net::TcpListener;
 use tokio::sync::{watch, Mutex, RwLock};
 use tokio::time::{interval, Duration};
-use tracing::{info, warn};
+use tracing::{error, info, warn};
 
 /// Parse duration string (e.g., "1s", "500ms")
 fn parse_duration(s: &str) -> u64 {
-    if s.ends_with("ms") {
-        s[..s.len() - 2].parse().unwrap_or(1000)
-    } else if s.ends_with("s") {
-        s[..s.len() - 1].parse().unwrap_or(1) * 1000
+    if let Some(stripped) = s.strip_suffix("ms") {
+        stripped.parse().unwrap_or(1000)
+    } else if let Some(stripped) = s.strip_suffix("s") {
+        stripped.parse().unwrap_or(1) * 1000
     } else {
         s.parse().unwrap_or(1000)
     }
@@ -231,9 +230,9 @@ async fn main() -> Result<(), ScannerError> {
     };
 
     // Initialize Phase 5 enforcement components
-    let enforcement_controller = EnforcementController::new(config.remediator.clone());
-    let tc_enforcer = TcEnforcer::new();
-    let threat_intel = ThreatIntelFeed::new();
+    let _enforcement_controller = EnforcementController::new(config.remediator.clone());
+    let _tc_enforcer = TcEnforcer::new();
+    let _threat_intel = ThreatIntelFeed::new();
 
     info!("Phase 5 enforcement components initialized");
 
@@ -264,8 +263,7 @@ async fn main() -> Result<(), ScannerError> {
     let vuln_detector = VulnDetector::new();
     if let Err(e) = VulnDetector::check_trivy() {
         warn!(
-            "Trivy not installed: {}. Vulnerability scanning disabled.",
-            e
+            "Trivy not installed: {e}. Vulnerability scanning disabled."
         );
     }
 
@@ -298,7 +296,7 @@ async fn main() -> Result<(), ScannerError> {
         streaming_engine.run(event_rx).await;
     });
 
-    let (event_handle, analysis_handle) = match load_and_run_ebpf(
+    let (event_handle, _analysis_handle) = match load_and_run_ebpf(
         &cli,
         &config,
         state_store.clone(),
@@ -329,43 +327,25 @@ async fn main() -> Result<(), ScannerError> {
     };
 
     // Setup webhook manager if URL is provided
-    let mut webhook_manager = webhook_sender::WebhookManager::new();
+    let mut webhook_manager = webhook::WebhookManager::new("scanner-1".to_string(), config.runtime.node_name.clone());
     if let Some(webhook_url) = &cli.webhook_url {
-        let webhook_type = match cli.webhook_type.as_str() {
-            "elastic" => webhook_sender::WebhookType::Elastic,
-            "splunk" => webhook_sender::WebhookType::Splunk,
-            "slack" => webhook_sender::WebhookType::Slack,
-            "teams" => webhook_sender::WebhookType::Teams,
-            "datadog" => webhook_sender::WebhookType::Datadog,
-            _ => webhook_sender::WebhookType::Generic,
-        };
-
-        let alert_mode = match cli.alert_mode.as_str() {
-            "on_alert_only" => webhook_sender::AlertMode::OnAlertOnly,
-            "on_update" => webhook_sender::AlertMode::OnUpdate,
-            "on_every_event" => webhook_sender::AlertMode::OnEveryEvent,
-            _ => webhook_sender::AlertMode::OnAlertOnly,
-        };
-
-        let webhook_config = webhook_sender::WebhookConfig {
+        let webhook_config = webhook::WebhookConfig {
             url: webhook_url.clone(),
-            webhook_type,
-            auth: webhook_sender::WebhookAuth::None,
-            rate_limit: 60,
-            min_severity: webhook_sender::SeverityFilter::High,
-            alert_mode,
+            token: None,
             timeout_secs: 30,
-            retry_attempts: 3,
+            max_retries: 3,
+            batch_size: 10,
+            batch_timeout_secs: 5,
+            min_priority: "High".to_string(),
+            include_metadata: true,
         };
 
-        webhook_manager.add_webhook(webhook_config);
-        info!(
-            "Webhook configured: {} (type: {})",
-            webhook_url, cli.webhook_type
-        );
+        webhook_manager.add_endpoint(webhook_config);
+        info!("Webhook configured for batch mode: {}", webhook_url);
     }
 
     let webhook_manager = Arc::new(webhook_manager);
+
 
     // Run pipeline based on mode
     let analysis_handle: tokio::task::JoinHandle<Result<Vec<Finding>, ScannerError>> =
@@ -384,7 +364,7 @@ async fn main() -> Result<(), ScannerError> {
             info!("Running in BATCH mode - periodic analysis");
 
             let analysis_config = config.clone();
-            let safe_enforcer_for_pipeline =
+            let _safe_enforcer_for_pipeline =
                 SafeEnforcer::new(EnforcementMode::Audit, config.risk.clone());
 
             tokio::spawn(async move {
@@ -399,7 +379,7 @@ async fn main() -> Result<(), ScannerError> {
                     cgroup_resolver,
                     remediator,
                     vuln_detector,
-                    safe_enforcer_for_pipeline,
+                    webhook_manager,
                 )
                 .await
             })
@@ -504,8 +484,168 @@ async fn load_and_run_ebpf(
     Ok((None, None))
 }
 
+async fn scan_image(
+    identity: &scanner_common::RuntimeIdentity,
+    workload: &WorkloadState,
+    intel: &IntelFeed,
+    risk_engine: &RiskEngine,
+    metrics: &Metrics,
+    vuln_detector: &VulnDetector,
+    sbom_store: &SbomStore,
+) -> Result<Vec<Finding>, ScannerError> {
+    let mut findings = Vec::new();
+    let intel_state = intel.state();
+    let intel_state = intel_state.read().await;
+
+    // Scan image for real vulnerabilities
+    match vuln_detector.scan_image(&identity.image).await {
+        Ok(vulns) => {
+            info!("Found {} vulnerabilities in {}", vulns.len(), identity.image);
+            for vuln in vulns {
+                let runtime_match =
+                    runtime_correlation::correlate_vulnerability(workload, &vuln);
+
+                let signal = scanner_common::RiskSignal {
+                    cve: vuln.cve.clone(),
+                    cvss: vuln.cvss_score,
+                    epss: *intel_state.epss.get(&vuln.cve).unwrap_or(&0.0),
+                    kev: intel_state.kev.contains(&vuln.cve),
+                    runtime: runtime_match.disposition.clone(),
+                    package: vuln.package.clone(),
+                    observed_paths: runtime_match.observed_paths.clone(),
+                    signal_weight: runtime_match.signal_weight,
+                };
+
+                let runtime_signals: Vec<scanner_common::SignalEvidence> = workload
+                    .signals
+                    .iter()
+                    .filter(|s| {
+                        runtime_match.evidence.iter().any(|e| {
+                            e.timestamp_ns == s.timestamp_ns && e.details == s.details
+                        })
+                    })
+                    .map(|s| scanner_common::SignalEvidence {
+                        signal_type: format!("{:?}", s.signal_type),
+                        timestamp_ns: s.timestamp_ns,
+                        details: s.details.clone(),
+                        confidence: s.weight.min(1.0),
+                    })
+                    .collect();
+
+                if let Some(finding) = risk_engine.evaluate(identity.clone(), signal, Some(&runtime_signals)) {
+                    let priority = format!("{:?}", finding.priority);
+                    metrics.inc_findings(&priority);
+                    findings.push(finding);
+                }
+            }
+        }
+        Err(e) => {
+            warn!("Vulnerability scan failed for {}: {e}", identity.image);
+            
+            // Fallback to SBOM
+            let components = sbom_store.classify_runtime_paths(&identity.image, &workload.observed_paths);
+            for (component, runtime) in components {
+                for cve in component.cves {
+                    let signal = scanner_common::RiskSignal {
+                        cve: cve.id.clone(),
+                        cvss: cve.cvss,
+                        epss: *intel_state.epss.get(&cve.id).unwrap_or(&0.0),
+                        kev: intel_state.kev.contains(&cve.id),
+                        runtime: runtime.clone(),
+                        package: component.package.clone(),
+                        observed_paths: workload
+                            .observed_paths
+                            .intersection(&component.paths)
+                            .cloned()
+                            .collect(),
+                        signal_weight: workload.signal_weight(),
+                    };
+
+                    if let Some(finding) = risk_engine.evaluate(identity.clone(), signal, None) {
+                        let priority = format!("{:?}", finding.priority);
+                        metrics.inc_findings(&priority);
+                        findings.push(finding);
+                    }
+                }
+            }
+        }
+    }
+    
+    Ok(findings)
+}
+
+fn build_attack_paths(
+    cgroup_id: u64,
+    identity: &scanner_common::RuntimeIdentity,
+    workload: &WorkloadState,
+    findings: &mut Vec<Finding>,
+    attack_graph: &mut runtime_attack_graph_v2::RuntimeAttackGraph,
+) {
+    let mut config = runtime_attack_graph_v2::AttackGraphConfig::default();
+    config.top_k = 3;
+    config.min_enforcement_confidence = 0.8;
+    config.min_enforcement_depth = 3;
+
+    // Process library loads
+    for lib in &workload.loaded_libraries {
+        attack_graph.process_library_load(0, &identity.workload, cgroup_id, lib, 0);
+
+        for finding in findings.iter() {
+            if runtime_correlation::library_matches_package(lib, &finding.signal.package) {
+                attack_graph.associate_cve_with_library(
+                    &finding.signal.cve,
+                    &finding.signal.package,
+                    finding.signal.cvss,
+                    finding.signal.epss,
+                    finding.signal.kev,
+                );
+            }
+        }
+    }
+
+    // Process network events
+    for signal in &workload.signals {
+        if signal.details.contains("transfer") {
+            let net_event = scanner_common::NetEvent {
+                timestamp_ns: signal.timestamp_ns,
+                pid: 0,
+                tgid: 0,
+                cgroup_id,
+                saddr: 0,
+                daddr: 0, 
+                sport: 0,
+                dport: 443,
+                family: 2,
+                protocol: 6,
+                kind: scanner_common::EventKind::TcpSend,
+                data_size: 1024,
+            };
+
+            attack_graph.process_network_event(0, &identity.workload, cgroup_id, &net_event);
+        }
+    }
+
+    let path_summaries = attack_graph.get_top_k_paths(findings);
+    let _updates = attack_graph.drain_updates();
+
+    if !path_summaries.is_empty() {
+        info!("Detected {} attack paths", path_summaries.len());
+        for path in &path_summaries {
+            info!(
+                "Attack Path #{}: {} nodes, confidence: {:.2}, risk: {:.2}",
+                path.rank.unwrap_or(0),
+                path.node_count,
+                path.confidence,
+                path.risk_score
+            );
+        }
+    }
+
+    runtime_attack_graph_v2::attach_attack_paths_to_findings(findings, attack_graph);
+}
+
 async fn run_analysis_pipeline(
-    config: &AppConfig,
+    _config: &AppConfig,
     sbom_store: SbomStore,
     intel: IntelFeed,
     pod_cache: PodCache,
@@ -515,296 +655,57 @@ async fn run_analysis_pipeline(
     cgroup_resolver: Arc<Mutex<cgroup::CgroupResolver>>,
     remediator: RemediatorService,
     vuln_detector: VulnDetector,
-    safe_enforcer: safe_enforcement::SafeEnforcer,
+    webhook_manager: Arc<webhook::WebhookManager>,
 ) -> Result<Vec<Finding>, ScannerError> {
     let mut findings = Vec::new();
     let mut ticker = interval(Duration::from_secs(30));
+    let mut attack_graph = runtime_attack_graph_v2::RuntimeAttackGraph::with_defaults();
 
     loop {
         ticker.tick().await;
 
         let store = state_store.lock().await;
         let mut resolver = cgroup_resolver.lock().await;
-        // Process each cgroup workload
+        
         for (cgroup_id, workload) in store.workloads() {
-            // Resolve container ID
             if let Some((container_id, _pid)) = resolver.resolve(*cgroup_id).await {
-                // Lookup pod identity
                 if let Some(identity) = pod_cache.lookup(&container_id).await {
-                    let intel_state = intel.state();
-                    let intel_state = intel_state.read().await;
-
-                    // 🆕 SCAN IMAGE FOR REAL VULNERABILITIES
-                    match vuln_detector.scan_image(&identity.image).await {
-                        Ok(vulns) => {
-                            // Clone vulns for later use in attack graph
-                            let vulns_for_attack_graph = vulns.clone();
-
-                            info!(
-                                "Found {} vulnerabilities in {}",
-                                vulns.len(),
-                                identity.image
-                            );
-                            for vuln in vulns {
-                                let runtime_match =
-                                    runtime_correlation::correlate_vulnerability(workload, &vuln);
-
-                                // Convert to risk signal with signal weighting
-                                let signal = scanner_common::RiskSignal {
-                                    cve: vuln.cve.clone(),
-                                    cvss: vuln.cvss_score,
-                                    epss: *intel_state.epss.get(&vuln.cve).unwrap_or(&0.0),
-                                    kev: intel_state.kev.contains(&vuln.cve),
-                                    runtime: runtime_match.disposition.clone(),
-                                    package: vuln.package.clone(),
-                                    observed_paths: runtime_match.observed_paths.clone(),
-                                    signal_weight: runtime_match.signal_weight,
-                                };
-
-                                // Get runtime signals for explainability
-                                let runtime_signals: Vec<scanner_common::SignalEvidence> = workload
-                                    .signals
-                                    .iter()
-                                    .filter(|s| {
-                                        runtime_match.evidence.iter().any(|e| {
-                                            e.timestamp_ns == s.timestamp_ns
-                                                && e.details == s.details
-                                        })
-                                    })
-                                    .map(|s| scanner_common::SignalEvidence {
-                                        signal_type: format!("{:?}", s.signal_type),
-                                        timestamp_ns: s.timestamp_ns,
-                                        details: s.details.clone(),
-                                        confidence: s.weight.min(1.0),
-                                    })
-                                    .collect();
-
-                                if let Some(finding) = risk_engine.evaluate(
-                                    identity.clone(),
-                                    signal,
-                                    Some(&runtime_signals),
-                                ) {
-                                    let priority = format!("{:?}", finding.priority);
-                                    metrics.inc_findings(&priority);
-                                    findings.push(finding.clone());
-
-                                    // Output JSON finding for test validation
-                                    match serde_json::to_string(&finding) {
-                                        Ok(json) => {
-                                            println!("{}", json);
-                                            info!(finding_json = %json, "finding_generated");
-                                        }
-                                        Err(e) => {
-                                            warn!(error = %e, "failed to serialize finding");
-                                        }
-                                    }
-
-                                    // Trigger remediation for critical
-                                    if matches!(
-                                        finding.priority,
-                                        scanner_common::Priority::Critical
-                                    ) {
-                                        if let Err(e) = remediator.remediate_finding(&finding).await
-                                        {
-                                            warn!("Remediation failed: {}", e);
-                                        }
-                                    }
-                                }
-
-                                // 🆕 BUILD ATTACK PATHS FROM RUNTIME SIGNALS
-                                // Initialize attack graph v2 with enhanced config
-                                let mut attack_graph =
-                                    runtime_attack_graph_v2::RuntimeAttackGraph::with_defaults();
-
-                                // Configure for production
-                                let mut config =
-                                    runtime_attack_graph_v2::AttackGraphConfig::default();
-                                config.top_k = 3; // Only report top 3 paths
-                                config.min_enforcement_confidence = 0.8;
-                                config.min_enforcement_depth = 3;
-
-                                // Process library loads
-                                for lib in &workload.loaded_libraries {
-                                    attack_graph.process_library_load(
-                                        0, // Use actual PID from signals
-                                        &identity.workload,
-                                        *cgroup_id,
-                                        lib,
-                                        0,
-                                    );
-
-                                    // Associate CVEs with loaded libraries
-                                    for vuln in &vulns_for_attack_graph {
-                                        if runtime_correlation::library_matches_package(
-                                            lib,
-                                            &vuln.package,
-                                        ) {
-                                            attack_graph.associate_cve_with_library(
-                                                &vuln.cve,
-                                                &vuln.package,
-                                                vuln.cvss_score,
-                                                *intel_state.epss.get(&vuln.cve).unwrap_or(&0.0),
-                                                intel_state.kev.contains(&vuln.cve),
-                                            );
-                                        }
-                                    }
-                                }
-
-                                // Process network events from runtime signals
-                                for signal in &workload.signals {
-                                    // Extract network info from signal details
-                                    if signal.details.contains("transfer") {
-                                        // Parse network info from details
-                                        let net_event = scanner_common::NetEvent {
-                                            timestamp_ns: signal.timestamp_ns,
-                                            pid: 0,
-                                            tgid: 0,
-                                            cgroup_id: *cgroup_id,
-                                            saddr: 0,
-                                            daddr: 0, // Parse from details
-                                            sport: 0,
-                                            dport: 443,
-                                            family: 2,
-                                            protocol: 6,
-                                            kind: scanner_common::EventKind::TcpSend,
-                                            data_size: 1024, // Parse from details
-                                        };
-
-                                        attack_graph.process_network_event(
-                                            0,
-                                            &identity.workload,
-                                            *cgroup_id,
-                                            &net_event,
-                                        );
-                                    }
-                                }
-
-                                // Get top-K paths and streaming updates
-                                let path_summaries = attack_graph.get_top_k_paths(&findings);
-                                let updates = attack_graph.drain_updates();
-
-                                // Log attack paths
-                                if !path_summaries.is_empty() {
-                                    info!("Detected {} attack paths", path_summaries.len());
-                                    for path in &path_summaries {
-                                        info!(
-                        "Attack Path #{}: {} nodes, confidence: {:.2}, risk: {:.2}",
-                        path.rank.unwrap_or(0),
-                        path.node_count,
-                        path.confidence,
-                        path.risk_score
-                    );
-                                    }
-                                }
-
-                                // Attach attack paths to findings
-                                runtime_attack_graph_v2::attach_attack_paths_to_findings(
-                                    &mut findings,
-                                    &mut attack_graph,
-                                );
-                            }
+                    
+                    let mut workload_findings = scan_image(
+                        &identity,
+                        workload,
+                        &intel,
+                        &risk_engine,
+                        &metrics,
+                        &vuln_detector,
+                        &sbom_store,
+                    ).await.unwrap_or_default();
+                    
+                    for finding in &workload_findings {
+                        // Output JSON finding for test validation
+                        if let Ok(json) = serde_json::to_string(finding) {
+                            println!("{json}");
+                            info!(finding_json = %json, "finding_generated");
                         }
-                        Err(e) => {
-                            warn!("Vulnerability scan failed for {}: {}", identity.image, e);
-                            // Fall back to SBOM-based detection
-                        }
-                    }
 
-                    // Original SBOM-based detection (fallback)
-                    let components = sbom_store
-                        .classify_runtime_paths(&identity.image, &workload.observed_paths);
+                        // Send Webhook alert
+                        webhook_manager.export_finding(finding).await;
 
-                    for (component, runtime) in components {
-                        for cve in component.cves {
-                            let signal = scanner_common::RiskSignal {
-                                cve: cve.id.clone(),
-                                cvss: cve.cvss,
-                                epss: *intel_state.epss.get(&cve.id).unwrap_or(&0.0),
-                                kev: intel_state.kev.contains(&cve.id),
-                                runtime: runtime.clone(),
-                                package: component.package.clone(),
-                                observed_paths: workload
-                                    .observed_paths
-                                    .intersection(&component.paths)
-                                    .cloned()
-                                    .collect(),
-                                signal_weight: workload.signal_weight(),
-                            };
-
-                            if let Some(finding) =
-                                risk_engine.evaluate(identity.clone(), signal, None)
-                            {
-                                let priority = format!("{:?}", finding.priority);
-                                metrics.inc_findings(&priority);
-                                findings.push(finding.clone());
-
-                                // Output JSON finding for test validation
-                                match serde_json::to_string(&finding) {
-                                    Ok(json) => {
-                                        println!("{}", json);
-                                        info!(finding_json = %json, "finding_generated");
-                                    }
-                                    Err(e) => {
-                                        warn!(error = %e, "failed to serialize finding");
-                                    }
-                                }
-
-                                // Trigger remediation for critical findings
-                                if matches!(finding.priority, scanner_common::Priority::Critical) {
-                                    if let Err(e) = remediator.remediate_finding(&finding).await {
-                                        warn!("Remediation failed: {}", e);
-                                    }
-
-                                    // Generate and enforce seccomp profile
-                                    let seccomp = risk_engine
-                                        .build_seccomp_profile(workload.observed_syscalls.clone());
-                                    if let Err(e) =
-                                        persist_seccomp(config, &identity.workload, &seccomp).await
-                                    {
-                                        warn!("Failed to persist seccomp: {}", e);
-                                    }
-                                    if let Err(e) = remediator
-                                        .enforce_seccomp(&identity.workload, &seccomp)
-                                        .await
-                                    {
-                                        warn!("Failed to enforce seccomp: {}", e);
-                                    }
-                                }
+                        // Trigger remediation for critical
+                        if matches!(finding.priority, scanner_common::Priority::Critical) {
+                            if let Err(e) = remediator.remediate_finding(finding).await {
+                                warn!("Remediation failed: {}", e);
                             }
                         }
                     }
+                    
+                    build_attack_paths(*cgroup_id, &identity, workload, &mut workload_findings, &mut attack_graph);
+                    findings.append(&mut workload_findings);
                 }
-            }
-
-            // 🆕 ATTACH ATTACK PATHS TO FINDINGS
-            // Build attack paths and attach to findings for explainability
-            if !findings.is_empty() {
-                let mut attack_graph = runtime_attack_graph::RuntimeAttackGraph::new(300);
-
-                // Build attack graph from runtime state
-                for (cgroup_id, workload) in store.workloads() {
-                    if let Some((container_id, _pid)) = resolver.resolve(*cgroup_id).await {
-                        if let Some(identity) = pod_cache.lookup(&container_id).await {
-                            // Add process nodes
-                            for lib in &workload.loaded_libraries {
-                                attack_graph.process_library_load(
-                                    0,
-                                    &identity.workload,
-                                    *cgroup_id,
-                                    lib,
-                                    0,
-                                );
-                            }
-                        }
-                    }
-                }
-
-                // Attach attack paths to findings
-                runtime_attack_graph::attach_attack_paths_to_findings(&mut findings, &attack_graph);
             }
         }
 
-        // Clear processed state periodically
+        // Clear processed state periodically to avoid unbounded state store growth
         drop(store);
         state_store.lock().await.clear();
     }
@@ -984,7 +885,7 @@ async fn run_degraded_pipeline(
                 // Output JSON finding for test validation
                 match serde_json::to_string(&finding) {
                     Ok(json) => {
-                        println!("{}", json);
+                        println!("{json}");
                         info!(finding_json = %json, "finding_generated");
                     }
                     Err(e) => {

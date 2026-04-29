@@ -15,7 +15,7 @@ fn main() {
     {
         Ok(_) => println!("cargo:warning=Protobuf compiled successfully"),
         Err(e) => {
-            println!("cargo:warning=Failed to compile protobuf: {}", e);
+            println!("cargo:warning=Failed to compile protobuf: {e}");
             println!("cargo:warning=Continuing without protobuf support");
         }
     }
