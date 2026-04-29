@@ -5,7 +5,7 @@
 
 ## Executive Summary
 
-Current validation status: **development-ready for the Windows/no-eBPF path**. Linux eBPF runtime validation is still required before calling this production-ready.
+Current validation status: **development-ready for the Windows/no-eBPF path**. Linux eBPF runtime probes are implemented and build-gated; host-level live validation still requires a Linux node with eBPF permissions before calling this production-ready.
 
 | Category | Tests | Passed | Failed | Status |
 |----------|-------|--------|--------|--------|
@@ -13,13 +13,21 @@ Current validation status: **development-ready for the Windows/no-eBPF path**. L
 | Agent Unit Tests | 44 | 44 | 0 | ✅ |
 | Agent E2E Tests | 4 | 4 | 0 | ✅ |
 | Common Unit Tests | 1 | 1 | 0 | ✅ |
-| Linux eBPF Runtime | Pending | Pending | Pending | ⚠️ |
+| Linux eBPF Runtime | Implemented | Typecheck reaches link | Linux live smoke pending | ⚠️ |
 
 Verified command:
 
 ```bash
 cargo test --workspace --no-default-features
 ```
+
+Linux eBPF build command checked from this Windows workstation:
+
+```bash
+cargo +nightly build --manifest-path scanner-ebpf/Cargo.toml --release --target bpfel-unknown-none -Z build-std=core
+```
+
+Result: Rust compilation reaches the linker step. The local host cannot complete linking because `bpf-linker` is Linux-only in this environment; the Docker/GitHub Actions Linux builder installs `bpf-linker` and is the required validation path for the final eBPF object.
 
 ---
 

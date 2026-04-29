@@ -18,4 +18,4 @@
 ## Known follow-up work
 
 - Add TC/XDP program loading for active egress blocking.
-- Replace stub tracepoints and kprobes in `scanner-ebpf` with full syscall and socket argument extraction.
+- Add IPv6 socket address enrichment for network events; IPv4 syscall destinations and transfer counters are emitted now.

@@ -39,6 +39,9 @@ impl BpfLoader {
         self.attach_tracepoint_if_present("scanner_mmap", "syscalls", "sys_enter_mmap")?;
         self.attach_tracepoint_if_present("trace_mprotect", "syscalls", "sys_enter_mprotect")?;
         self.attach_tracepoint_if_present("scanner_mprotect", "syscalls", "sys_enter_mprotect")?;
+        self.attach_tracepoint_if_present("trace_connect", "syscalls", "sys_enter_connect")?;
+        self.attach_tracepoint_if_present("trace_sendto", "syscalls", "sys_enter_sendto")?;
+        self.attach_tracepoint_if_present("trace_recvfrom", "syscalls", "sys_enter_recvfrom")?;
 
         Ok(())
     }

@@ -31,7 +31,8 @@ It is designed to distinguish:
 
 - Verified now: `cargo test --workspace --no-default-features`
 - Verified path: Windows and macOS development flow without eBPF
-- In progress: Linux eBPF runtime integration and validation
+- Implemented: Linux eBPF runtime event emission, loader wiring, and unified userspace consumption
+- Pending external validation: live Linux host smoke test with eBPF permissions
 - Not yet claimed: production readiness for Linux runtime enforcement
 
 Detailed status is in [docs/VALIDATION_RESULTS.md](docs/VALIDATION_RESULTS.md).
@@ -77,9 +78,10 @@ sudo apt install -y git curl build-essential clang llvm libelf-dev linux-headers
 The Linux runtime now supports the actual unified kernel event schema emitted by the eBPF crate:
 
 - Kernel side emits `SECURITY_EVENTS`
-- Userspace loader attaches the real probe names present in `scanner-ebpf`
+- Userspace loader attaches syscall tracepoints and TCP/UDP kprobes present in `scanner-ebpf`
 - Userspace event consumer translates unified security events into the existing runtime pipeline
 - Runtime correlation marks CVEs reachable only when package or library evidence matches observed runtime paths
+- Runtime probes currently emit exec, openat, mmap, mprotect, IPv4 connect, sendto, recvfrom, and TCP/UDP transfer events
 
 This keeps the existing risk engine, state store, attack graph, and webhook path intact while aligning the Linux runtime with the current eBPF crate.
 

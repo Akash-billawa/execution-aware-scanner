@@ -5,7 +5,7 @@
 //!
 //! Architecture:
 //! - events.rs: Unified SecurityEvent schema
-//! - tracepoints.rs: Syscall monitoring (execve, openat, mmap)
+//! - tracepoints.rs: Syscall monitoring (execve, openat, mmap, mprotect, network syscalls)
 //! - kprobes.rs: Kernel function hooks (tcp_connect, socket operations)
 //! - process.rs: Process context tracking (PID → metadata)
 //! - libraries.rs: Library loading detection (.so tracking)
