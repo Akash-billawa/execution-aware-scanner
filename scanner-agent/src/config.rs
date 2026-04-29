@@ -186,22 +186,28 @@ impl AppConfig {
             ));
         }
 
-        if self.metrics.bind_addr.parse::<std::net::SocketAddr>().is_err() {
+        if self
+            .metrics
+            .bind_addr
+            .parse::<std::net::SocketAddr>()
+            .is_err()
+        {
             return Err(config::ConfigError::Message(
-                "SCANNER__METRICS__BIND_ADDR must be a valid socket address (e.g. 0.0.0.0:9898)".to_string(),
+                "SCANNER__METRICS__BIND_ADDR must be a valid socket address (e.g. 0.0.0.0:9898)"
+                    .to_string(),
             ));
         }
 
         #[cfg(all(feature = "ebpf", target_os = "linux"))]
         {
             if !std::path::Path::new(&self.bpf.object_path).exists() {
-                return Err(config::ConfigError::Message(
-                    format!("SCANNER__BPF__OBJECT_PATH does not exist: {}", self.bpf.object_path),
-                ));
+                return Err(config::ConfigError::Message(format!(
+                    "SCANNER__BPF__OBJECT_PATH does not exist: {}",
+                    self.bpf.object_path
+                )));
             }
         }
 
         Ok(())
     }
 }
-

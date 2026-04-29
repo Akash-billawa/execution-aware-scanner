@@ -130,7 +130,9 @@ impl WebhookExporter {
             request = match &self.config.auth {
                 WebhookAuth::None => request,
                 WebhookAuth::Bearer(token) => request.bearer_auth(token),
-                WebhookAuth::Basic { username, password } => request.basic_auth(username, Some(password)),
+                WebhookAuth::Basic { username, password } => {
+                    request.basic_auth(username, Some(password))
+                }
             };
 
             match request.body(json.clone()).send().await {
@@ -212,7 +214,9 @@ impl WebhookExporter {
             request = match &self.config.auth {
                 WebhookAuth::None => request,
                 WebhookAuth::Bearer(token) => request.bearer_auth(token),
-                WebhookAuth::Basic { username, password } => request.basic_auth(username, Some(password)),
+                WebhookAuth::Basic { username, password } => {
+                    request.basic_auth(username, Some(password))
+                }
             };
 
             match request.body(json.clone()).send().await {
