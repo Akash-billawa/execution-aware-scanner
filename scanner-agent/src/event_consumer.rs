@@ -3,12 +3,10 @@
 use crate::bpf_loader::EventSources;
 use crate::cgroup::CgroupResolver;
 use crate::error::ScannerError;
-use crate::k8s::PodCache;
 use crate::metrics::Metrics;
-use crate::runtime_attack_graph_v2::{GraphUpdate, RuntimeEdge, RuntimeNode};
+use crate::runtime_attack_graph_v2::{GraphUpdate, RuntimeEdge};
 use crate::state::StateStore;
 use aya::maps::{MapData, RingBuf};
-use bytes::BytesMut;
 use scanner_common::{c_string, EventKind, ExecEvent, FileEvent, NetEvent};
 use std::collections::BTreeSet;
 use std::sync::Arc;
@@ -225,11 +223,11 @@ impl EventConsumer {
             drop(item);
 
             // Parse and process after item is dropped
-            let event_opt = self.parse_exec_event(&data_bytes);
+            let event_opt = Self::parse_exec_event(&data_bytes);
 
             if let Some(event) = event_opt {
                 // Apply filtering
-                if self.should_filter_exec(&event) {
+                if Self::should_filter_exec(&event) {
                     self.events_filtered += 1;
                     continue;
                 }
@@ -278,10 +276,10 @@ impl EventConsumer {
             drop(item);
 
             // Parse and process after item is dropped
-            let event_opt = self.parse_file_event(&data_bytes);
+            let event_opt = Self::parse_file_event(&data_bytes);
 
             if let Some(event) = event_opt {
-                if self.should_filter_file(&event) {
+                if Self::should_filter_file(&event) {
                     self.events_filtered += 1;
                     continue;
                 }
@@ -327,10 +325,10 @@ impl EventConsumer {
             drop(item);
 
             // Parse and process after item is dropped
-            let event_opt = self.parse_net_event(&data_bytes);
+            let event_opt = Self::parse_net_event(&data_bytes);
 
             if let Some(event) = event_opt {
-                if self.should_filter_net(&event) {
+                if Self::should_filter_net(&event) {
                     self.events_filtered += 1;
                     continue;
                 }
@@ -378,8 +376,8 @@ impl EventConsumer {
                 let mut store = state_store.lock().await;
                 let mut accepted = false;
 
-                if let Some(exec) = self.security_to_exec(&event) {
-                    if !self.should_filter_exec(&exec) {
+                if let Some(exec) = Self::security_to_exec(&event) {
+                    if !Self::should_filter_exec(&exec) {
                         self.exec_batch.push(exec);
                         if let Some(last) = self.exec_batch.last() {
                             store.apply_exec(last);
@@ -387,8 +385,8 @@ impl EventConsumer {
                         }
                     }
                 }
-                if let Some(file) = self.security_to_file(&event) {
-                    if !self.should_filter_file(&file) {
+                if let Some(file) = Self::security_to_file(&event) {
+                    if !Self::should_filter_file(&file) {
                         self.file_batch.push(file);
                         if let Some(last) = self.file_batch.last() {
                             store.apply_file(last);
@@ -396,8 +394,8 @@ impl EventConsumer {
                         }
                     }
                 }
-                if let Some(net) = self.security_to_net(&event) {
-                    if !self.should_filter_net(&net) {
+                if let Some(net) = Self::security_to_net(&event) {
+                    if !Self::should_filter_net(&net) {
                         self.net_batch.push(net);
                         if let Some(last) = self.net_batch.last() {
                             store.apply_net(last);
@@ -637,21 +635,21 @@ impl EventConsumer {
     }
 
     // Event parsers
-    fn parse_exec_event(&self, data: &[u8]) -> Option<ExecEvent> {
+    fn parse_exec_event(data: &[u8]) -> Option<ExecEvent> {
         if data.len() < std::mem::size_of::<ExecEvent>() {
             return None;
         }
         Some(unsafe { std::ptr::read_unaligned(data.as_ptr() as *const ExecEvent) })
     }
 
-    fn parse_file_event(&self, data: &[u8]) -> Option<FileEvent> {
+    fn parse_file_event(data: &[u8]) -> Option<FileEvent> {
         if data.len() < std::mem::size_of::<FileEvent>() {
             return None;
         }
         Some(unsafe { std::ptr::read_unaligned(data.as_ptr() as *const FileEvent) })
     }
 
-    fn parse_net_event(&self, data: &[u8]) -> Option<NetEvent> {
+    fn parse_net_event(data: &[u8]) -> Option<NetEvent> {
         if data.len() < std::mem::size_of::<NetEvent>() {
             return None;
         }
@@ -665,7 +663,7 @@ impl EventConsumer {
         Some(unsafe { std::ptr::read_unaligned(data.as_ptr() as *const SecurityEvent) })
     }
 
-    fn security_to_exec(&self, event: &SecurityEvent) -> Option<ExecEvent> {
+    fn security_to_exec(event: &SecurityEvent) -> Option<ExecEvent> {
         if event.kind != SecurityEventKind::Exec {
             return None;
         }
@@ -687,7 +685,7 @@ impl EventConsumer {
         })
     }
 
-    fn security_to_file(&self, event: &SecurityEvent) -> Option<FileEvent> {
+    fn security_to_file(event: &SecurityEvent) -> Option<FileEvent> {
         let kind = match event.kind {
             SecurityEventKind::File => EventKind::Open,
             SecurityEventKind::Mmap => EventKind::Mmap,
@@ -709,7 +707,7 @@ impl EventConsumer {
         })
     }
 
-    fn security_to_net(&self, event: &SecurityEvent) -> Option<NetEvent> {
+    fn security_to_net(event: &SecurityEvent) -> Option<NetEvent> {
         let net = unsafe { event.data.net };
         let kind = match event.kind {
             SecurityEventKind::Connect => EventKind::Connect,
@@ -740,7 +738,7 @@ impl EventConsumer {
     }
 
     // Filtering logic
-    fn should_filter_exec(&self, event: &ExecEvent) -> bool {
+    fn should_filter_exec(event: &ExecEvent) -> bool {
         let command = c_string(&event.command);
 
         // Filter out known system processes
@@ -768,7 +766,7 @@ impl EventConsumer {
         false
     }
 
-    fn should_filter_file(&self, event: &FileEvent) -> bool {
+    fn should_filter_file(event: &FileEvent) -> bool {
         let path = c_string(&event.path);
 
         // Filter temporary files
@@ -787,7 +785,7 @@ impl EventConsumer {
         false
     }
 
-    fn should_filter_net(&self, event: &NetEvent) -> bool {
+    fn should_filter_net(event: &NetEvent) -> bool {
         // Filter localhost
         if event.daddr == 0x7F000001 || event.daddr == 0x0100007F {
             return true;
