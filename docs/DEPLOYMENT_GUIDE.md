@@ -239,11 +239,12 @@ git checkout v1.0.0
 
 ```bash
 # Build eBPF program
-cargo build --target bpfel-unknown-none -p scanner-ebpf --release
+export CARGO_TARGET_DIR="$(pwd)/target"
+cargo +nightly build --manifest-path scanner-ebpf/Cargo.toml --target bpfel-unknown-none --release -Z build-std=core
 
 # Copy eBPF object
 sudo mkdir -p /opt/scanner
-sudo cp target/bpfel-unknown-none/release/scanner-ebpf /opt/scanner/scanner-ebpf.o
+sudo cp target/bpfel-unknown-none/release/libscanner_ebpf.so /opt/scanner/scanner-ebpf.o
 
 # Build userspace agent with Linux eBPF support
 cargo build --release -p scanner-agent --features ebpf

@@ -43,7 +43,7 @@ fi
 info "Building eBPF object and userspace agent"
 "$ROOT_DIR/scripts/build-ebpf.sh"
 
-EBPF_OBJ="$ROOT_DIR/target/bpfel-unknown-none/release/scanner-ebpf"
+EBPF_OBJ="$ROOT_DIR/target/bpfel-unknown-none/release/libscanner_ebpf.so"
 AGENT_BIN="$ROOT_DIR/target/release/scanner-agent"
 
 [[ -f "$EBPF_OBJ" ]] || fail "Missing eBPF object: $EBPF_OBJ"

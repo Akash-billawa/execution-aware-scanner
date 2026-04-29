@@ -14,6 +14,7 @@ rustup target add bpfel-unknown-none --toolchain nightly
 
 # Optimize eBPF binary size
 export RUSTFLAGS="-C panic=abort"
+export CARGO_TARGET_DIR="${SCRIPT_DIR}/../target"
 
 # Build eBPF with nightly and build-std
 echo "[1/2] Building scanner-ebpf (nightly + build-std=core)..."
@@ -27,5 +28,5 @@ echo "[2/2] Building scanner-agent (stable)..."
 cargo build -p scanner-agent --release --features ebpf
 
 echo "=== Build Complete ==="
-echo "eBPF binary: target/bpfel-unknown-none/release/scanner-ebpf"
+echo "eBPF binary: target/bpfel-unknown-none/release/libscanner_ebpf.so"
 echo "Agent binary: target/release/scanner-agent"

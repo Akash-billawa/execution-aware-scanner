@@ -6,6 +6,8 @@ FROM rust:1.90-bookworm AS builder
 WORKDIR /src
 COPY . .
 
+ENV CARGO_TARGET_DIR=/src/target
+
 # Install build dependencies
 RUN apt-get update && apt-get install -y --no-install-recommends \
     protobuf-compiler \
@@ -23,7 +25,8 @@ RUN cargo +nightly install bpf-linker
 # Build eBPF programs
 # Note: bpfel-unknown-none is tier 3, so we use -Z build-std=core
 # This compiles core library from source
-RUN cargo +nightly build -p scanner-ebpf \
+RUN cargo +nightly build \
+    --manifest-path scanner-ebpf/Cargo.toml \
     --release \
     --target bpfel-unknown-none \
     -Z build-std=core

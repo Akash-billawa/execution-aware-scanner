@@ -47,14 +47,15 @@ jobs:
         continue-on-error: true  # eBPF may have API compatibility issues
         run: |
           export RUSTFLAGS="-C panic=abort"
-          cargo +nightly build -p scanner-ebpf --release --target bpfel-unknown-none -Z build-std=core
+          export CARGO_TARGET_DIR="${GITHUB_WORKSPACE}/target"
+          cargo +nightly build --manifest-path scanner-ebpf/Cargo.toml --release --target bpfel-unknown-none -Z build-std=core
 
       - name: Upload eBPF artifact (if available)
         uses: actions/upload-artifact@v4
         if: always()  # Always try to upload if file exists
         with:
           name: ebpf-binary
-          path: target/bpfel-unknown-none/release/scanner-ebpf
+          path: target/bpfel-unknown-none/release/libscanner_ebpf.so
           retention-days: 7
           if-no-files-found: ignore
 
