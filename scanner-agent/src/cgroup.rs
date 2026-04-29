@@ -86,25 +86,37 @@ fn extract_container_id(cgroup_path: &str) -> Option<String> {
     // cri-o: .../cri-o/<container_id>
     // k8s: .../kubepods/burstable/<pod_uid>/<container_id>
 
-    let parts: Vec<&str> = cgroup_path.split('/').collect();
+    let parts: Vec<&str> = cgroup_path.split('/').filter(|p| !p.is_empty()).collect();
 
     for (i, part) in parts.iter().enumerate() {
         match *part {
             "docker" => {
-                return parts.get(i + 1).map(|s| normalize_id(s));
+                return parts
+                    .get(i + 1)
+                    .map(|s| normalize_id(s))
+                    .filter(|id| is_container_id(id));
             }
             "containerd" | "cri-o" => {
-                return parts.get(i + 1).map(|s| normalize_id(s));
+                return parts
+                    .get(i + 1)
+                    .map(|s| normalize_id(s))
+                    .filter(|id| is_container_id(id));
             }
             "kubepods" => {
                 // Look for container ID at end of path
                 if let Some(last) = parts.last() {
-                    if is_container_id(last) {
-                        return Some(normalize_id(last));
+                    let normalized = normalize_id(last);
+                    if is_container_id(&normalized) {
+                        return Some(normalized);
                     }
                 }
             }
             _ => {}
+        }
+
+        let normalized = normalize_id(part);
+        if normalized != *part && is_container_id(&normalized) {
+            return Some(normalized);
         }
     }
 
@@ -113,7 +125,11 @@ fn extract_container_id(cgroup_path: &str) -> Option<String> {
 
 fn is_container_id(s: &str) -> bool {
     let normalized = normalize_id(s);
-    normalized.len() == 64
+    normalized.len() >= 8
+        && normalized.len() <= 128
+        && normalized
+            .chars()
+            .all(|c| c.is_ascii_hexdigit() || c == '-' || c == '_')
 }
 
 fn normalize_id(raw: &str) -> String {

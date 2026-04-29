@@ -16,7 +16,7 @@ if ! command -v trivy &> /dev/null; then
     echo "❌ Trivy not found. Install with:"
     echo "   sudo apt install trivy    # Debian/Ubuntu"
     echo "   brew install trivy        # macOS"
-    echo "   See: https://aquasecurity.github.io/trivy/latest/getting-started/installation/"
+    echo "   See: https://trivy.dev/docs/latest/getting-started/installation/"
     exit 1
 fi
 

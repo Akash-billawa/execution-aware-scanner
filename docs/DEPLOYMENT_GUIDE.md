@@ -245,8 +245,8 @@ cargo build --target bpfel-unknown-none -p scanner-ebpf --release
 sudo mkdir -p /opt/scanner
 sudo cp target/bpfel-unknown-none/release/scanner-ebpf /opt/scanner/scanner-ebpf.o
 
-# Build userspace agent
-cargo build --release -p scanner-agent
+# Build userspace agent with Linux eBPF support
+cargo build --release -p scanner-agent --features ebpf
 
 # Install binary
 sudo cp target/release/scanner-agent /usr/local/bin/

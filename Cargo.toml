@@ -4,6 +4,9 @@ members = [
     "scanner-common",
     # "scanner-ebpf",  # Built separately for Linux/BPF target only
 ]
+exclude = [
+    "scanner-ebpf",
+]
 resolver = "2"
 
 [workspace.package]

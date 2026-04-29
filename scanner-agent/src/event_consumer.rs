@@ -1,5 +1,6 @@
-#![cfg(feature = "ebpf")]
+#![cfg(all(feature = "ebpf", target_os = "linux"))]
 
+use crate::bpf_loader::EventSources;
 use crate::cgroup::CgroupResolver;
 use crate::error::ScannerError;
 use crate::k8s::PodCache;
@@ -17,9 +18,10 @@ use tokio::time::Instant;
 use tracing::{debug, error, info, trace, warn};
 
 pub struct EventConsumer {
-    exec_rb: RingBuf<MapData>,
-    file_rb: RingBuf<MapData>,
-    net_rb: RingBuf<MapData>,
+    exec_rb: Option<RingBuf<MapData>>,
+    file_rb: Option<RingBuf<MapData>>,
+    net_rb: Option<RingBuf<MapData>>,
+    security_rb: Option<RingBuf<MapData>>,
 
     // Buffers for batching
     exec_batch: Vec<ExecEvent>,
@@ -42,15 +44,21 @@ pub struct EventConsumer {
 }
 
 impl EventConsumer {
-    pub fn new(
-        exec_rb: RingBuf<MapData>,
-        file_rb: RingBuf<MapData>,
-        net_rb: RingBuf<MapData>,
-    ) -> Self {
+    pub fn new(event_sources: EventSources) -> Self {
+        let (exec_rb, file_rb, net_rb, security_rb) = match event_sources {
+            EventSources::Legacy {
+                exec_rb,
+                file_rb,
+                net_rb,
+            } => (Some(exec_rb), Some(file_rb), Some(net_rb), None),
+            EventSources::Unified { security_rb } => (None, None, None, Some(security_rb)),
+        };
+
         Self {
             exec_rb,
             file_rb,
             net_rb,
+            security_rb,
             exec_batch: Vec::with_capacity(1024),
             file_batch: Vec::with_capacity(1024),
             net_batch: Vec::with_capacity(1024),
@@ -107,10 +115,13 @@ impl EventConsumer {
         while Instant::now() < deadline {
             let mut events_this_iter = 0;
 
-            // Non-blocking consume from each ring buffer
-            events_this_iter += self.consume_exec_batch(&state_store, metrics).await?;
-            events_this_iter += self.consume_file_batch(&state_store, metrics).await?;
-            events_this_iter += self.consume_net_batch(&state_store, metrics).await?;
+            if self.security_rb.is_some() {
+                events_this_iter += self.consume_security_batch(&state_store, metrics).await?;
+            } else {
+                events_this_iter += self.consume_exec_batch(&state_store, metrics).await?;
+                events_this_iter += self.consume_file_batch(&state_store, metrics).await?;
+                events_this_iter += self.consume_net_batch(&state_store, metrics).await?;
+            }
 
             total_events += events_this_iter;
 
@@ -148,10 +159,13 @@ impl EventConsumer {
         loop {
             tokio::select! {
                 _ = interval.tick() => {
-                    // Process events
-                    let _ = self.consume_exec_batch(&state_store, &metrics).await;
-                    let _ = self.consume_file_batch(&state_store, &metrics).await;
-                    let _ = self.consume_net_batch(&state_store, &metrics).await;
+                    if self.security_rb.is_some() {
+                        let _ = self.consume_security_batch(&state_store, &metrics).await;
+                    } else {
+                        let _ = self.consume_exec_batch(&state_store, &metrics).await;
+                        let _ = self.consume_file_batch(&state_store, &metrics).await;
+                        let _ = self.consume_net_batch(&state_store, &metrics).await;
+                    }
 
                     // Check flush condition
                     if self.last_flush.elapsed() >= self.batch_timeout
@@ -196,9 +210,12 @@ impl EventConsumer {
         metrics: &Metrics,
     ) -> Result<usize, ScannerError> {
         let mut count = 0;
+        let Some(exec_rb) = self.exec_rb.as_mut() else {
+            return Ok(0);
+        };
 
         loop {
-            let item = match self.exec_rb.next() {
+            let item = match exec_rb.next() {
                 Some(i) => i,
                 None => break,
             };
@@ -246,9 +263,12 @@ impl EventConsumer {
         metrics: &Metrics,
     ) -> Result<usize, ScannerError> {
         let mut count = 0;
+        let Some(file_rb) = self.file_rb.as_mut() else {
+            return Ok(0);
+        };
 
         loop {
-            let item = match self.file_rb.next() {
+            let item = match file_rb.next() {
                 Some(i) => i,
                 None => break,
             };
@@ -292,9 +312,12 @@ impl EventConsumer {
         metrics: &Metrics,
     ) -> Result<usize, ScannerError> {
         let mut count = 0;
+        let Some(net_rb) = self.net_rb.as_mut() else {
+            return Ok(0);
+        };
 
         loop {
-            let item = match self.net_rb.next() {
+            let item = match net_rb.next() {
                 Some(i) => i,
                 None => break,
             };
@@ -325,6 +348,79 @@ impl EventConsumer {
             }
 
             if self.net_batch.len() >= self.batch_size {
+                break;
+            }
+        }
+
+        Ok(count)
+    }
+
+    async fn consume_security_batch(
+        &mut self,
+        state_store: &Arc<Mutex<StateStore>>,
+        metrics: &Metrics,
+    ) -> Result<usize, ScannerError> {
+        let mut count = 0;
+        let Some(security_rb) = self.security_rb.as_mut() else {
+            return Ok(0);
+        };
+
+        loop {
+            let item = match security_rb.next() {
+                Some(i) => i,
+                None => break,
+            };
+            self.events_received += 1;
+            let data_bytes: Vec<u8> = (*item).to_vec();
+            drop(item);
+
+            if let Some(event) = Self::parse_security_event(&data_bytes) {
+                let mut store = state_store.lock().await;
+                let mut accepted = false;
+
+                if let Some(exec) = self.security_to_exec(&event) {
+                    if !self.should_filter_exec(&exec) {
+                        self.exec_batch.push(exec);
+                        if let Some(last) = self.exec_batch.last() {
+                            store.apply_exec(last);
+                            accepted = true;
+                        }
+                    }
+                }
+                if let Some(file) = self.security_to_file(&event) {
+                    if !self.should_filter_file(&file) {
+                        self.file_batch.push(file);
+                        if let Some(last) = self.file_batch.last() {
+                            store.apply_file(last);
+                            accepted = true;
+                        }
+                    }
+                }
+                if let Some(net) = self.security_to_net(&event) {
+                    if !self.should_filter_net(&net) {
+                        self.net_batch.push(net);
+                        if let Some(last) = self.net_batch.last() {
+                            store.apply_net(last);
+                            accepted = true;
+                        }
+                    }
+                }
+                drop(store);
+
+                if accepted {
+                    count += 1;
+                    metrics.inc_events();
+                } else {
+                    self.events_filtered += 1;
+                }
+            } else {
+                self.events_dropped += 1;
+            }
+
+            if self.exec_batch.len() >= self.batch_size
+                || self.file_batch.len() >= self.batch_size
+                || self.net_batch.len() >= self.batch_size
+            {
                 break;
             }
         }
@@ -562,6 +658,87 @@ impl EventConsumer {
         Some(unsafe { std::ptr::read_unaligned(data.as_ptr() as *const NetEvent) })
     }
 
+    fn parse_security_event(data: &[u8]) -> Option<SecurityEvent> {
+        if data.len() < std::mem::size_of::<SecurityEvent>() {
+            return None;
+        }
+        Some(unsafe { std::ptr::read_unaligned(data.as_ptr() as *const SecurityEvent) })
+    }
+
+    fn security_to_exec(&self, event: &SecurityEvent) -> Option<ExecEvent> {
+        if event.kind != SecurityEventKind::Exec {
+            return None;
+        }
+
+        let exec = unsafe { event.data.exec };
+        let mut argv = [0u8; 256];
+        argv[..exec.args.len()].copy_from_slice(&exec.args);
+
+        Some(ExecEvent {
+            timestamp_ns: event.ts,
+            pid: event.pid,
+            tgid: event.tgid,
+            uid: event.uid,
+            gid: event.gid,
+            cgroup_id: event.cgroup_id,
+            ppid: exec.ppid,
+            command: event.comm,
+            argv,
+        })
+    }
+
+    fn security_to_file(&self, event: &SecurityEvent) -> Option<FileEvent> {
+        let kind = match event.kind {
+            SecurityEventKind::File => EventKind::Open,
+            SecurityEventKind::Mmap => EventKind::Mmap,
+            _ => return None,
+        };
+
+        let file = unsafe { event.data.file };
+        let mut path = [0u8; 256];
+        path[..file.path.len()].copy_from_slice(&file.path);
+
+        Some(FileEvent {
+            timestamp_ns: event.ts,
+            pid: event.pid,
+            tgid: event.tgid,
+            cgroup_id: event.cgroup_id,
+            command: event.comm,
+            path,
+            kind,
+        })
+    }
+
+    fn security_to_net(&self, event: &SecurityEvent) -> Option<NetEvent> {
+        let net = unsafe { event.data.net };
+        let kind = match event.kind {
+            SecurityEventKind::Connect => EventKind::Connect,
+            SecurityEventKind::NetTransfer => {
+                if net.protocol == 17 {
+                    EventKind::UdpSend
+                } else {
+                    EventKind::TcpSend
+                }
+            }
+            _ => return None,
+        };
+
+        Some(NetEvent {
+            timestamp_ns: event.ts,
+            pid: event.pid,
+            tgid: event.tgid,
+            cgroup_id: event.cgroup_id,
+            saddr: net.saddr,
+            daddr: net.daddr,
+            sport: net.sport,
+            dport: net.dport,
+            family: 2,
+            protocol: net.protocol,
+            kind,
+            data_size: net.bytes.min(u32::MAX as u64) as u32,
+        })
+    }
+
     // Filtering logic
     fn should_filter_exec(&self, event: &ExecEvent) -> bool {
         let command = c_string(&event.command);
@@ -723,6 +900,75 @@ fn is_shared_library(path: &str) -> bool {
         || path.ends_with(".so.2")
         || path.contains("/lib/")
         || path.contains("/usr/lib/")
+}
+
+#[repr(u8)]
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum SecurityEventKind {
+    Exec = 0,
+    File = 1,
+    Mmap = 2,
+    Connect = 3,
+    NetTransfer = 4,
+    Dns = 5,
+    Exit = 6,
+    Suspicious = 7,
+}
+
+#[repr(C)]
+#[derive(Clone, Copy)]
+struct SecurityEvent {
+    ts: u64,
+    kind: SecurityEventKind,
+    pid: u32,
+    tgid: u32,
+    uid: u32,
+    gid: u32,
+    cgroup_id: u64,
+    confidence: u8,
+    data: SecurityEventData,
+    comm: [u8; 16],
+}
+
+#[repr(C)]
+#[derive(Clone, Copy)]
+union SecurityEventData {
+    exec: SecurityExecData,
+    file: SecurityFileData,
+    net: SecurityNetData,
+    raw: [u8; 128],
+}
+
+#[repr(C)]
+#[derive(Clone, Copy)]
+struct SecurityExecData {
+    ppid: u32,
+    is_setuid: u8,
+    _pad: [u8; 3],
+    args: [u8; 120],
+}
+
+#[repr(C)]
+#[derive(Clone, Copy)]
+struct SecurityFileData {
+    path: [u8; 96],
+    flags: u32,
+    is_sensitive: u8,
+    _pad: [u8; 27],
+}
+
+#[repr(C)]
+#[derive(Clone, Copy)]
+struct SecurityNetData {
+    saddr: u32,
+    daddr: u32,
+    sport: u16,
+    dport: u16,
+    bytes: u64,
+    protocol: u8,
+    is_external: u8,
+    is_suspicious_port: u8,
+    _pad: [u8; 101],
 }
 
 #[cfg(test)]

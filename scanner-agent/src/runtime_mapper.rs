@@ -2,6 +2,7 @@
 //! Maps eBPF events (exec, file open, network) to actual vulnerable libraries
 
 use crate::error::ScannerError;
+use crate::runtime_correlation::library_matches_package;
 use crate::vuln_detector::{VulnDetector, Vulnerability};
 use scanner_common::{EventKind, ExecEvent, FileEvent, NetEvent};
 use std::collections::{BTreeMap, BTreeSet};
@@ -31,6 +32,8 @@ pub struct RuntimeMapper {
     processes: BTreeMap<u32, ProcessState>,
     /// Library path -> CVE list (cached)
     lib_vulns: BTreeMap<String, Vec<Vulnerability>>,
+    /// Package -> known vulnerability list from image/SBOM scanning
+    package_vulns: BTreeMap<String, Vec<Vulnerability>>,
     vuln_detector: VulnDetector,
 }
 
@@ -39,8 +42,21 @@ impl RuntimeMapper {
         Self {
             processes: BTreeMap::new(),
             lib_vulns: BTreeMap::new(),
+            package_vulns: BTreeMap::new(),
             vuln_detector: VulnDetector::new(),
         }
+    }
+
+    /// Preload vulnerabilities discovered from an image or SBOM scan.
+    pub fn set_vulnerabilities(&mut self, vulnerabilities: Vec<Vulnerability>) {
+        self.package_vulns.clear();
+        for vuln in vulnerabilities {
+            self.package_vulns
+                .entry(vuln.package.to_ascii_lowercase())
+                .or_default()
+                .push(vuln);
+        }
+        self.lib_vulns.clear();
     }
 
     /// Process exec event - new process started
@@ -186,12 +202,6 @@ impl RuntimeMapper {
 
     /// Scan a library file for vulnerabilities
     async fn scan_library(&self, path: &str) -> Result<Vec<Vulnerability>, ScannerError> {
-        // For real implementation, you'd extract the library name and version
-        // Then query vulnerability database
-        // For now, use the vuln_detector to scan
-
-        // Parse library name from path
-        // Example: /usr/lib/x86_64-linux-gnu/libssl.so.1.1 -> libssl 1.1
         let lib_name = Path::new(path)
             .file_stem()
             .and_then(|s| s.to_str())
@@ -201,10 +211,21 @@ impl RuntimeMapper {
             .unwrap_or("unknown")
             .to_string();
 
-        // In production, you'd query a local CVE database by library name
-        // For now, return empty - real scanning would be done at image level
-        tracing::debug!("Library {} loaded (path: {})", lib_name, path);
-        Ok(Vec::new())
+        let vulns: Vec<Vulnerability> = self
+            .package_vulns
+            .values()
+            .flatten()
+            .filter(|vuln| library_matches_package(path, &vuln.package))
+            .cloned()
+            .collect();
+
+        tracing::debug!(
+            "Library {} loaded (path: {}), matched {} vulnerabilities",
+            lib_name,
+            path,
+            vulns.len()
+        );
+        Ok(vulns)
     }
 }
 
@@ -316,6 +337,48 @@ mod tests {
         mapper.handle_file(&file).await.unwrap();
         let proc = mapper.get_process(1234).unwrap();
         assert!(proc.loaded_libs.contains("/usr/lib/libssl.so.1.1"));
+    }
+
+    #[tokio::test]
+    async fn maps_loaded_library_to_preloaded_vulnerabilities() {
+        let mut mapper = RuntimeMapper::new();
+        mapper.set_vulnerabilities(vec![Vulnerability {
+            package: "openssl".to_string(),
+            version: "1.1.1".to_string(),
+            cve: "CVE-2026-0001".to_string(),
+            severity: crate::vuln_detector::Severity::High,
+            cvss_score: 8.8,
+            description: "test".to_string(),
+            fixed_version: None,
+        }]);
+
+        let exec = ExecEvent {
+            timestamp_ns: 0,
+            pid: 1234,
+            tgid: 1234,
+            uid: 0,
+            gid: 0,
+            cgroup_id: 1,
+            ppid: 1,
+            command: [110, 103, 105, 110, 120, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+            argv: [0u8; 256],
+        };
+        mapper.handle_exec(&exec);
+
+        let file = FileEvent {
+            timestamp_ns: 0,
+            pid: 1234,
+            tgid: 1234,
+            cgroup_id: 1,
+            command: [110, 103, 105, 110, 120, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+            path: path_to_bytes("/usr/lib/libssl.so.1.1"),
+            kind: EventKind::Mmap,
+        };
+
+        mapper.handle_file(&file).await.unwrap();
+        let proc = mapper.get_process(1234).unwrap();
+        assert_eq!(proc.vulnerabilities.len(), 1);
+        assert_eq!(proc.vulnerabilities[0].cve, "CVE-2026-0001");
     }
 
     fn path_to_bytes(s: &str) -> [u8; 256] {

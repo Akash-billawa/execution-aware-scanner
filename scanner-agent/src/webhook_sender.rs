@@ -83,7 +83,7 @@ pub enum WebhookAuth {
 }
 
 /// Severity filter
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "UPPERCASE")]
 pub enum SeverityFilter {
     Critical,
@@ -91,6 +91,30 @@ pub enum SeverityFilter {
     Medium,
     Low,
     Info,
+}
+
+impl SeverityFilter {
+    fn rank(&self) -> u8 {
+        match self {
+            SeverityFilter::Info => 0,
+            SeverityFilter::Low => 1,
+            SeverityFilter::Medium => 2,
+            SeverityFilter::High => 3,
+            SeverityFilter::Critical => 4,
+        }
+    }
+}
+
+impl PartialOrd for SeverityFilter {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl Ord for SeverityFilter {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        self.rank().cmp(&other.rank())
+    }
 }
 
 impl From<&Priority> for SeverityFilter {

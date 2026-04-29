@@ -48,21 +48,21 @@ impl ExfRiskEngine {
 
     /// Calculate EXF score using weighted components
     ///
-    /// Formula: EXF = (CVSS × 0.45) + (EPSS × 10 × 0.25) + (KEV_Bonus × 0.15) + (Runtime × 0.15)
+    /// Formula: EXF = (CVSS × 0.50) + (EPSS × 10 × 0.30) + KEV + Runtime + signal boost.
     /// Enhanced with signal weighting for precise risk calculation
     pub fn calculate_exf_score(&self, signal: &RiskSignal) -> f32 {
         // Normalize CVSS (already 0-10)
-        let cvss_component = signal.cvss * 0.45;
+        let cvss_component = signal.cvss * 0.50;
 
         // EPSS is 0-1, scale to 0-10
-        let epss_component = signal.epss * 10.0 * 0.25;
+        let epss_component = signal.epss * 10.0 * 0.30;
 
         // KEV bonus: +1.5 points if known exploited
         let kev_component = if signal.kev { 1.5 } else { 0.0 };
 
         // Runtime component: active exposure increases risk
         let runtime_component = match signal.runtime {
-            RuntimeDisposition::Reachable => 1.5,
+            RuntimeDisposition::Reachable => 2.0,
             RuntimeDisposition::Dormant => 0.5,
             RuntimeDisposition::Unknown => 0.75,
         };
@@ -108,7 +108,7 @@ impl ExfRiskEngine {
         // Determine priority based on EXF score
         let priority = if score >= 9.0 {
             Priority::Critical
-        } else if score >= 8.0 {
+        } else if signal.kev || score >= 8.0 {
             Priority::High
         } else if score >= 6.0 {
             Priority::Medium

@@ -15,6 +15,7 @@
 
 use petgraph::graph::{DiGraph, NodeIndex};
 use petgraph::visit::EdgeRef;
+use petgraph::Direction;
 use scanner_common::{EventKind, Finding, NetEvent, RuntimeDisposition, SignalEvidence};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -598,8 +599,7 @@ impl RuntimeAttackGraph {
         let lib_indices: Vec<_> = self.graph.node_indices().collect();
         for idx in lib_indices {
             if let Some(RuntimeNode::Library { path, .. }) = self.graph.node_weight(idx) {
-                if path.contains(package) || package.contains(path.split('/').last().unwrap_or(""))
-                {
+                if library_matches_package(path, package) {
                     let edge = RuntimeEdge::Vulnerable { confidence: 0.95 };
                     self.graph.add_edge(vuln_idx, idx, edge);
                 }
@@ -681,8 +681,8 @@ impl RuntimeAttackGraph {
                         indicators.push(format!("Vulnerable library: {}", lib_node.node_id()));
                         signal_types.push("vulnerability".to_string());
 
-                        // Get processes using this library
-                        for proc_edge in self.graph.edges(lib_idx) {
+                        // Get processes using this library. Library loads are stored as process -> library.
+                        for proc_edge in self.graph.edges_directed(lib_idx, Direction::Incoming) {
                             if let RuntimeEdge::LibraryLoaded {
                                 timestamp_ns,
                                 confidence,
@@ -848,6 +848,23 @@ impl RuntimeAttackGraph {
     pub fn config(&self) -> &AttackGraphConfig {
         &self.config
     }
+}
+
+fn library_matches_package(path: &str, package: &str) -> bool {
+    let path_lc = path.to_ascii_lowercase();
+    let package_lc = package.to_ascii_lowercase();
+    let file_name = path_lc.rsplit('/').next().unwrap_or(&path_lc);
+    let lib_stem = file_name
+        .trim_start_matches("lib")
+        .split(".so")
+        .next()
+        .unwrap_or(file_name);
+
+    path_lc.contains(&package_lc)
+        || package_lc.contains(file_name)
+        || package_lc.contains(lib_stem)
+        || (package_lc == "openssl" && lib_stem == "ssl")
+        || (package_lc == "openssl" && lib_stem == "crypto")
 }
 
 /// Integration with findings

@@ -13,6 +13,7 @@ mod remediator;
 mod risk_engine;
 mod runtime_attack_graph;
 mod runtime_attack_graph_v2;
+mod runtime_correlation;
 mod runtime_mapper;
 mod safe_enforcement;
 mod sbom;
@@ -24,16 +25,16 @@ mod vuln_detector;
 mod webhook;
 mod webhook_sender;
 
-// eBPF modules only available with ebpf feature
-#[cfg(feature = "ebpf")]
+// eBPF modules only available on Linux with ebpf feature
+#[cfg(all(feature = "ebpf", target_os = "linux"))]
 mod bpf_loader;
-#[cfg(feature = "ebpf")]
+#[cfg(all(feature = "ebpf", target_os = "linux"))]
 mod event_consumer;
-#[cfg(feature = "ebpf")]
+#[cfg(all(feature = "ebpf", target_os = "linux"))]
 mod tc_enforcer;
 
-// Stub modules for non-eBPF builds
-#[cfg(not(feature = "ebpf"))]
+// Stub modules for non-eBPF or non-Linux builds
+#[cfg(not(all(feature = "ebpf", target_os = "linux")))]
 mod event_consumer {
     pub struct EventConsumer;
     impl EventConsumer {
@@ -52,7 +53,7 @@ mod event_consumer {
         pub net_batch_size: usize,
     }
 }
-#[cfg(not(feature = "ebpf"))]
+#[cfg(not(all(feature = "ebpf", target_os = "linux")))]
 mod tc_enforcer {
     pub struct TcEnforcer;
     impl TcEnforcer {
@@ -88,16 +89,16 @@ use std::sync::Arc;
 use tracing::error;
 use vuln_detector::VulnDetector;
 
-// eBPF types only with ebpf feature
-#[cfg(feature = "ebpf")]
+// eBPF types only on Linux with ebpf feature
+#[cfg(all(feature = "ebpf", target_os = "linux"))]
 use event_consumer::EventConsumer;
-#[cfg(feature = "ebpf")]
+#[cfg(all(feature = "ebpf", target_os = "linux"))]
 use tc_enforcer::{TcEnforcer, ThreatIntelFeed};
 
-// Stub types for non-eBPF
-#[cfg(not(feature = "ebpf"))]
+// Stub types for non-eBPF or non-Linux builds
+#[cfg(not(all(feature = "ebpf", target_os = "linux")))]
 use event_consumer::ConsumerStats;
-#[cfg(not(feature = "ebpf"))]
+#[cfg(not(all(feature = "ebpf", target_os = "linux")))]
 use tc_enforcer::{TcEnforcer, ThreatIntelFeed};
 
 use tokio::net::TcpListener;
@@ -462,10 +463,10 @@ async fn load_and_run_ebpf(
     info!("eBPF programs attached");
 
     // Open ring buffers
-    let (exec_rb, file_rb, net_rb) = loader.open_ringbufs()?;
+    let event_sources = loader.open_event_sources()?;
 
     // Create event consumer with streaming engine connection
-    let mut consumer = EventConsumer::new(exec_rb, file_rb, net_rb);
+    let mut consumer = EventConsumer::new(event_sources);
     consumer.set_event_sender(event_tx);
 
     // Start event consumer
@@ -545,12 +546,8 @@ async fn run_analysis_pipeline(
                                 identity.image
                             );
                             for vuln in vulns {
-                                // Calculate runtime disposition based on signals
-                                let runtime = if workload.signal_weight() > 0.0 {
-                                    scanner_common::RuntimeDisposition::Reachable
-                                } else {
-                                    scanner_common::RuntimeDisposition::Dormant
-                                };
+                                let runtime_match =
+                                    runtime_correlation::correlate_vulnerability(workload, &vuln);
 
                                 // Convert to risk signal with signal weighting
                                 let signal = scanner_common::RiskSignal {
@@ -558,21 +555,27 @@ async fn run_analysis_pipeline(
                                     cvss: vuln.cvss_score,
                                     epss: *intel_state.epss.get(&vuln.cve).unwrap_or(&0.0),
                                     kev: intel_state.kev.contains(&vuln.cve),
-                                    runtime,
+                                    runtime: runtime_match.disposition.clone(),
                                     package: vuln.package.clone(),
-                                    observed_paths: workload.observed_paths.clone(),
-                                    signal_weight: workload.signal_weight(),
+                                    observed_paths: runtime_match.observed_paths.clone(),
+                                    signal_weight: runtime_match.signal_weight,
                                 };
 
                                 // Get runtime signals for explainability
                                 let runtime_signals: Vec<scanner_common::SignalEvidence> = workload
                                     .signals
                                     .iter()
+                                    .filter(|s| {
+                                        runtime_match.evidence.iter().any(|e| {
+                                            e.timestamp_ns == s.timestamp_ns
+                                                && e.details == s.details
+                                        })
+                                    })
                                     .map(|s| scanner_common::SignalEvidence {
                                         signal_type: format!("{:?}", s.signal_type),
                                         timestamp_ns: s.timestamp_ns,
                                         details: s.details.clone(),
-                                        confidence: s.weight.min(1.0), // Weight as confidence
+                                        confidence: s.weight.min(1.0),
                                     })
                                     .collect();
 
@@ -632,11 +635,10 @@ async fn run_analysis_pipeline(
 
                                     // Associate CVEs with loaded libraries
                                     for vuln in &vulns_for_attack_graph {
-                                        if lib.contains(&vuln.package)
-                                            || vuln
-                                                .package
-                                                .contains(lib.split('/').last().unwrap_or(""))
-                                        {
+                                        if runtime_correlation::library_matches_package(
+                                            lib,
+                                            &vuln.package,
+                                        ) {
                                             attack_graph.associate_cve_with_library(
                                                 &vuln.cve,
                                                 &vuln.package,

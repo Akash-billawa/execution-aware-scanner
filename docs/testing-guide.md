@@ -16,6 +16,9 @@ docker run --rm ghcr.io/akash-billawa/execution-aware-scanner:main --version
 ## Local Testing with eBPF (Linux)
 
 ```bash
+# Validate host prerequisites first
+./scripts/validate-linux-ebpf-runtime.sh
+
 # Run with privileged mode (required for eBPF)
 docker run --rm --privileged \
   --pid=host \
@@ -23,6 +26,13 @@ docker run --rm --privileged \
   -v /sys/kernel/debug:/sys/kernel/debug:ro \
   -v /sys/fs/cgroup:/sys/fs/cgroup:ro \
   ghcr.io/akash-billawa/execution-aware-scanner:main
+```
+
+If you are building locally instead of using the published image:
+
+```bash
+./scripts/build-ebpf.sh
+sudo ./target/release/scanner-agent
 ```
 
 ## Kubernetes Deployment

@@ -1,9 +1,20 @@
-#![cfg(feature = "ebpf")]
+#![cfg(all(feature = "ebpf", target_os = "linux"))]
 
 use crate::error::ScannerError;
 use aya::maps::{MapData, RingBuf};
 use aya::programs::{KProbe, Lsm, TracePoint, Xdp};
 use aya::Ebpf;
+
+pub enum EventSources {
+    Legacy {
+        exec_rb: RingBuf<MapData>,
+        file_rb: RingBuf<MapData>,
+        net_rb: RingBuf<MapData>,
+    },
+    Unified {
+        security_rb: RingBuf<MapData>,
+    },
+}
 
 pub struct BpfLoader {
     pub bpf: Ebpf,
@@ -18,28 +29,36 @@ impl BpfLoader {
     }
 
     pub fn attach_tracepoints(&mut self) -> Result<(), ScannerError> {
-        // Attach exec tracepoints
-        self.attach_tracepoint("scanner_execve", "syscalls", "sys_enter_execve")?;
-        self.attach_tracepoint("scanner_execveat", "syscalls", "sys_enter_execveat")?;
-
-        // Attach file tracepoints
-        self.attach_tracepoint("scanner_openat", "syscalls", "sys_enter_openat")?;
-        self.attach_tracepoint("scanner_openat2", "syscalls", "sys_enter_openat2")?;
-        self.attach_tracepoint("scanner_mmap", "syscalls", "sys_enter_mmap")?;
-        self.attach_tracepoint("scanner_mprotect", "syscalls", "sys_enter_mprotect")?;
+        self.attach_tracepoint_if_present("trace_enter_execve", "syscalls", "sys_enter_execve")?;
+        self.attach_tracepoint_if_present("scanner_execve", "syscalls", "sys_enter_execve")?;
+        self.attach_tracepoint_if_present("scanner_execveat", "syscalls", "sys_enter_execveat")?;
+        self.attach_tracepoint_if_present("trace_openat", "syscalls", "sys_enter_openat")?;
+        self.attach_tracepoint_if_present("scanner_openat", "syscalls", "sys_enter_openat")?;
+        self.attach_tracepoint_if_present("scanner_openat2", "syscalls", "sys_enter_openat2")?;
+        self.attach_tracepoint_if_present("trace_mmap", "syscalls", "sys_enter_mmap")?;
+        self.attach_tracepoint_if_present("scanner_mmap", "syscalls", "sys_enter_mmap")?;
+        self.attach_tracepoint_if_present("trace_mprotect", "syscalls", "sys_enter_mprotect")?;
+        self.attach_tracepoint_if_present("scanner_mprotect", "syscalls", "sys_enter_mprotect")?;
 
         Ok(())
     }
 
     pub fn attach_kprobes(&mut self) -> Result<(), ScannerError> {
-        // Attach network kprobes
-        self.attach_kprobe("scanner_tcp_connect", "tcp_connect")?;
-        self.attach_kprobe("scanner_tcp_connect_v6", "tcp_v6_connect")?;
-        self.attach_kprobe("scanner_inet_bind", "inet_bind")?;
-        self.attach_kprobe("scanner_inet_bind_v6", "inet6_bind")?;
-        self.attach_kprobe("scanner_tcp_close", "tcp_close")?;
-        self.attach_kprobe("scanner_udp_sendmsg", "udp_sendmsg")?;
-        self.attach_kprobe("scanner_udp_recvmsg", "udp_recvmsg")?;
+        self.attach_kprobe_if_present("trace_tcp_v4_connect", "tcp_v4_connect")?;
+        self.attach_kprobe_if_present("trace_tcp_v6_connect", "tcp_v6_connect")?;
+        self.attach_kprobe_if_present("trace_tcp_close", "tcp_close")?;
+        self.attach_kprobe_if_present("trace_tcp_sendmsg", "tcp_sendmsg")?;
+        self.attach_kprobe_if_present("trace_tcp_recvmsg", "tcp_recvmsg")?;
+        self.attach_kprobe_if_present("trace_udp_sendmsg", "udp_sendmsg")?;
+        self.attach_kprobe_if_present("trace_udp_recvmsg", "udp_recvmsg")?;
+        self.attach_kprobe_if_present("trace_do_mmap", "do_mmap")?;
+        self.attach_kprobe_if_present("scanner_tcp_connect", "tcp_connect")?;
+        self.attach_kprobe_if_present("scanner_tcp_connect_v6", "tcp_v6_connect")?;
+        self.attach_kprobe_if_present("scanner_inet_bind", "inet_bind")?;
+        self.attach_kprobe_if_present("scanner_inet_bind_v6", "inet6_bind")?;
+        self.attach_kprobe_if_present("scanner_tcp_close", "tcp_close")?;
+        self.attach_kprobe_if_present("scanner_udp_sendmsg", "udp_sendmsg")?;
+        self.attach_kprobe_if_present("scanner_udp_recvmsg", "udp_recvmsg")?;
 
         Ok(())
     }
@@ -80,14 +99,33 @@ impl BpfLoader {
         Ok(())
     }
 
-    pub fn open_ringbufs(
-        &mut self,
-    ) -> Result<(RingBuf<MapData>, RingBuf<MapData>, RingBuf<MapData>), ScannerError> {
+    pub fn open_event_sources(&mut self) -> Result<EventSources, ScannerError> {
+        if self.bpf.map("SECURITY_EVENTS").is_some() {
+            let security_rb = self.take_ringbuf("SECURITY_EVENTS")?;
+            return Ok(EventSources::Unified { security_rb });
+        }
+
         let exec_rb = self.take_ringbuf("EXEC_EVENTS")?;
         let file_rb = self.take_ringbuf("FILE_EVENTS")?;
         let net_rb = self.take_ringbuf("NET_EVENTS")?;
 
-        Ok((exec_rb, file_rb, net_rb))
+        Ok(EventSources::Legacy {
+            exec_rb,
+            file_rb,
+            net_rb,
+        })
+    }
+
+    fn attach_tracepoint_if_present(
+        &mut self,
+        name: &str,
+        category: &str,
+        tracepoint: &str,
+    ) -> Result<(), ScannerError> {
+        if self.bpf.program(name).is_none() {
+            return Ok(());
+        }
+        self.attach_tracepoint(name, category, tracepoint)
     }
 
     fn attach_tracepoint(
@@ -129,6 +167,17 @@ impl BpfLoader {
 
         tracing::info!("Attached kprobe: {}", name);
         Ok(())
+    }
+
+    fn attach_kprobe_if_present(
+        &mut self,
+        name: &str,
+        kernel_fn: &str,
+    ) -> Result<(), ScannerError> {
+        if self.bpf.program(name).is_none() {
+            return Ok(());
+        }
+        self.attach_kprobe(name, kernel_fn)
     }
 
     fn attach_lsm(&mut self, hook: &str) -> Result<(), ScannerError> {

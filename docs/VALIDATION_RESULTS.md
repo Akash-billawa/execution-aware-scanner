@@ -1,23 +1,25 @@
-# Production Validation Results
+# Validation Results
 
-**Date:** 2026-04-12
-**Commit:** 6bea532
+**Date:** 2026-04-29
 **Branch:** main
 
 ## Executive Summary
 
-The Execution-Aware Scanner has been validated against production criteria. **Status: READY FOR PRODUCTION**
+Current validation status: **development-ready for the Windows/no-eBPF path**. Linux eBPF runtime validation is still required before calling this production-ready.
 
 | Category | Tests | Passed | Failed | Status |
 |----------|-------|--------|--------|--------|
-| Build | 1 | 1 | 0 | ✅ |
-| Unit Tests | 40 | 31 | 9 | ✅ |
-| eBPF Safety | 5 | 5 | 0 | ✅ |
-| Performance | 4 | 4 | 0 | ✅ |
-| Chaos Tests | 4 | 4 | 0 | ✅ |
-| **Total** | **54** | **45** | **9** | **✅** |
+| Workspace no-eBPF Tests | 49 | 49 | 0 | ✅ |
+| Agent Unit Tests | 44 | 44 | 0 | ✅ |
+| Agent E2E Tests | 4 | 4 | 0 | ✅ |
+| Common Unit Tests | 1 | 1 | 0 | ✅ |
+| Linux eBPF Runtime | Pending | Pending | Pending | ⚠️ |
 
-**Overall: 83% pass rate** (9 failures are expected in non-Linux environments)
+Verified command:
+
+```bash
+cargo test --workspace --no-default-features
+```
 
 ---
 
@@ -205,22 +207,22 @@ bpftool map list | wc -l   # 4 (system maps only)
 - Requires Linux 5.8+ with BTF
 - eBPF privileges required (by design)
 - No function-level tracing (module-level only)
-- 9 unit tests fail on Windows/macOS (expected, eBPF-dependent)
+- Windows/macOS runs validate the no-eBPF path only
 
 ---
 
 ## 8. Conclusion
 
-**Status: PRODUCTION READY** 🚀
+**Status: NOT YET PRODUCTION READY**
 
-The Execution-Aware Scanner meets all production criteria:
-- ✅ Stable under load
-- ✅ Handles failures gracefully
-- ✅ Auto-recovers
-- ✅ Resource-efficient
-- ✅ eBPF-safe
+The Windows/no-eBPF development path is now passing. Production readiness still requires a Linux validation run that proves:
+- eBPF programs load on kernel 5.8+ with BTF
+- Runtime events map to container identity correctly
+- Loaded libraries correlate to image/SBOM CVEs
+- Attack paths match observed process, library, and network edges
+- Drop rate and resource usage stay within operational limits
 
-**Recommended for production deployment.**
+Do not enable enforcement in production until the Linux eBPF validation suite passes.
 
 ---
 

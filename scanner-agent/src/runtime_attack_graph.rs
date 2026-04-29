@@ -272,8 +272,7 @@ impl RuntimeAttackGraph {
         // Find libraries that match this package
         for idx in self.graph.node_indices() {
             if let Some(RuntimeNode::Library { path, .. }) = self.graph.node_weight(idx) {
-                if path.contains(package) || package.contains(path.split('/').last().unwrap_or(""))
-                {
+                if library_matches_package(path, package) {
                     let edge = RuntimeEdge::Vulnerable { confidence: 0.95 };
                     self.add_edge(vuln_idx, idx, edge);
                 }
@@ -395,6 +394,23 @@ impl RuntimeAttackGraph {
             Dot::with_config(&self.graph, &[Config::EdgeNoLabel])
         )
     }
+}
+
+fn library_matches_package(path: &str, package: &str) -> bool {
+    let path_lc = path.to_ascii_lowercase();
+    let package_lc = package.to_ascii_lowercase();
+    let file_name = path_lc.rsplit('/').next().unwrap_or(&path_lc);
+    let lib_stem = file_name
+        .trim_start_matches("lib")
+        .split(".so")
+        .next()
+        .unwrap_or(file_name);
+
+    path_lc.contains(&package_lc)
+        || package_lc.contains(file_name)
+        || package_lc.contains(lib_stem)
+        || (package_lc == "openssl" && lib_stem == "ssl")
+        || (package_lc == "openssl" && lib_stem == "crypto")
 }
 
 /// Integration with findings

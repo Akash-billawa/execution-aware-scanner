@@ -83,14 +83,14 @@ mod e2e_tests {
 
         // Stage 4: Risk Scoring
         println!("[4/5] EXF Risk Scoring");
-        let cvss_component = 7.5 * 0.45; // 3.375
-        let epss_component = 0.85 * 10.0 * 0.25; // 2.125
+        let cvss_component = 7.5 * 0.50; // 3.75
+        let epss_component = 0.85 * 10.0 * 0.30; // 2.55
         let kev_component = 1.5;
-        let runtime_component = 1.5;
+        let runtime_component = 2.0;
         let total_score = cvss_component + epss_component + kev_component + runtime_component;
 
-        println!("      → CVSS × 0.45     = {:.2}", cvss_component);
-        println!("      → EPSS × 10 × 0.25 = {:.2}", epss_component);
+        println!("      → CVSS × 0.50     = {:.2}", cvss_component);
+        println!("      → EPSS × 10 × 0.30 = {:.2}", epss_component);
         println!("      → KEV Bonus       = {:.2}", kev_component);
         println!("      → Runtime Bonus   = {:.2}", runtime_component);
         println!("      → TOTAL SCORE     = {:.1}/10", total_score);
@@ -127,7 +127,7 @@ mod e2e_tests {
         let mut critical = 0;
         for (cve, pkg, cvss, reachable) in &vulnerabilities {
             let status = if *reachable { "REACHABLE" } else { "DORMANT" };
-            let action = if *cvss > 8.0 && *reachable {
+            let action = if *cvss >= 9.0 && *reachable {
                 critical += 1;
                 "ENFORCED"
             } else {

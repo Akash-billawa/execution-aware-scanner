@@ -13,9 +13,9 @@
 - Build the eBPF object on a Linux builder with BTF support.
 - Keep Aya crate versions aligned between user space and eBPF crates.
 - Validate the generated seccomp profiles in audit mode before enforcement.
+- Use `scripts/build-ebpf.sh` for the Linux build and `scripts/validate-linux-ebpf-runtime.sh` for the host-level runtime smoke check.
 
 ## Known follow-up work
 
-- Replace the degraded pipeline in `scanner-agent/src/main.rs` with real ring buffer consumption.
-- Add cgroup-to-container-id resolution by parsing `/host/proc/<pid>/cgroup`.
 - Add TC/XDP program loading for active egress blocking.
+- Replace stub tracepoints and kprobes in `scanner-ebpf` with full syscall and socket argument extraction.

@@ -398,9 +398,10 @@ impl AttackPathAnalyzer {
             .nodes()
             .enumerate()
             .find(|(_, n)| match n {
+                AttackNode::External { ip, .. } => ip == name,
                 AttackNode::Service { name: n, .. } => n == name,
                 AttackNode::Vulnerability { cve_id, .. } => cve_id == name,
-                _ => false,
+                AttackNode::Asset { name: n, .. } => n == name,
             })
             .map(|(i, _)| NodeIndex::new(i))
     }
