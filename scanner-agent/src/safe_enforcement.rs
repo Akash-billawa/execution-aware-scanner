@@ -8,8 +8,7 @@ use std::collections::HashMap;
 use std::time::{Duration, Instant};
 
 /// Enforcement modes - graduated response
-#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
-#[derive(Default)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize, Default)]
 pub enum EnforcementMode {
     /// Only log and report (default)
     #[default]
@@ -19,7 +18,6 @@ pub enum EnforcementMode {
     /// Take blocking action (only with safeguards)
     Enforce,
 }
-
 
 /// Enforcement decision with rationale
 #[derive(Debug, Clone)]

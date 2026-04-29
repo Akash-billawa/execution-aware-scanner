@@ -431,11 +431,20 @@ impl EnforcementController {
 fn categorize_syscall(syscall: &str) -> String {
     match syscall {
         "mmap" | "munmap" | "mprotect" | "brk" | "sbrk" => "memory".to_string(),
-        "openat" | "openat2" | "read" | "write" | "close" | "fstat" | "lseek" | "access" => "file".to_string(),
-        "execve" | "execveat" | "clone" | "fork" | "vfork" | "exit" | "wait4" | "getpid" => "process".to_string(),
-        "socket" | "connect" | "bind" | "listen" | "accept" | "sendto" | "recvfrom" | "setsockopt" => "network".to_string(),
-        "rt_sigaction" | "rt_sigprocmask" | "rt_sigreturn" | "kill" | "tkill" | "tgkill" => "signal".to_string(),
-        "clock_gettime" | "gettimeofday" | "nanosleep" | "alarm" | "timer_create" => "time".to_string(),
+        "openat" | "openat2" | "read" | "write" | "close" | "fstat" | "lseek" | "access" => {
+            "file".to_string()
+        }
+        "execve" | "execveat" | "clone" | "fork" | "vfork" | "exit" | "wait4" | "getpid" => {
+            "process".to_string()
+        }
+        "socket" | "connect" | "bind" | "listen" | "accept" | "sendto" | "recvfrom"
+        | "setsockopt" => "network".to_string(),
+        "rt_sigaction" | "rt_sigprocmask" | "rt_sigreturn" | "kill" | "tkill" | "tgkill" => {
+            "signal".to_string()
+        }
+        "clock_gettime" | "gettimeofday" | "nanosleep" | "alarm" | "timer_create" => {
+            "time".to_string()
+        }
         _ => "other".to_string(),
     }
 }

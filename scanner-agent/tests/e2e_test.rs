@@ -134,9 +134,7 @@ mod e2e_tests {
                 "MONITORED"
             };
 
-            println!(
-                "  {cve} ({pkg}) - CVSS: {cvss} - {status} → {action}"
-            );
+            println!("  {cve} ({pkg}) - CVSS: {cvss} - {status} → {action}");
         }
 
         println!("\n  Total: {critical} critical enforcements");
@@ -178,9 +176,7 @@ mod e2e_tests {
                 "IGNORED"
             };
 
-            println!(
-                "  {cve} ({pkg}) - CVSS: {cvss} - {status} → {action}"
-            );
+            println!("  {cve} ({pkg}) - CVSS: {cvss} - {status} → {action}");
         }
 
         println!(

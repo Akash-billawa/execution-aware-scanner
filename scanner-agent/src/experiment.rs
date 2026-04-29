@@ -54,8 +54,7 @@ impl std::fmt::Display for ExperimentMode {
 }
 
 /// Configuration for ablation studies (disable specific signals)
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[derive(Default)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct AblationConfig {
     pub disable_mmap: bool,
     pub disable_tcp: bool,
@@ -65,7 +64,6 @@ pub struct AblationConfig {
     pub disable_mprotect: bool,
     pub disable_suspicious_exec: bool,
 }
-
 
 impl AblationConfig {
     /// Check if a signal type is disabled

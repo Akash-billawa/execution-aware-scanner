@@ -262,9 +262,7 @@ async fn main() -> Result<(), ScannerError> {
     // Initialize vulnerability detector
     let vuln_detector = VulnDetector::new();
     if let Err(e) = VulnDetector::check_trivy() {
-        warn!(
-            "Trivy not installed: {e}. Vulnerability scanning disabled."
-        );
+        warn!("Trivy not installed: {e}. Vulnerability scanning disabled.");
     }
 
     // Initialize attack graph for streaming mode
@@ -327,7 +325,8 @@ async fn main() -> Result<(), ScannerError> {
     };
 
     // Setup webhook manager if URL is provided
-    let mut webhook_manager = webhook::WebhookManager::new("scanner-1".to_string(), config.runtime.node_name.clone());
+    let mut webhook_manager =
+        webhook::WebhookManager::new("scanner-1".to_string(), config.runtime.node_name.clone());
     if let Some(webhook_url) = &cli.webhook_url {
         let webhook_config = webhook::WebhookConfig {
             url: webhook_url.clone(),
@@ -345,7 +344,6 @@ async fn main() -> Result<(), ScannerError> {
     }
 
     let webhook_manager = Arc::new(webhook_manager);
-
 
     // Run pipeline based on mode
     let analysis_handle: tokio::task::JoinHandle<Result<Vec<Finding>, ScannerError>> =
@@ -500,10 +498,13 @@ async fn scan_image(
     // Scan image for real vulnerabilities
     match vuln_detector.scan_image(&identity.image).await {
         Ok(vulns) => {
-            info!("Found {} vulnerabilities in {}", vulns.len(), identity.image);
+            info!(
+                "Found {} vulnerabilities in {}",
+                vulns.len(),
+                identity.image
+            );
             for vuln in vulns {
-                let runtime_match =
-                    runtime_correlation::correlate_vulnerability(workload, &vuln);
+                let runtime_match = runtime_correlation::correlate_vulnerability(workload, &vuln);
 
                 let signal = scanner_common::RiskSignal {
                     cve: vuln.cve.clone(),
@@ -520,9 +521,10 @@ async fn scan_image(
                     .signals
                     .iter()
                     .filter(|s| {
-                        runtime_match.evidence.iter().any(|e| {
-                            e.timestamp_ns == s.timestamp_ns && e.details == s.details
-                        })
+                        runtime_match
+                            .evidence
+                            .iter()
+                            .any(|e| e.timestamp_ns == s.timestamp_ns && e.details == s.details)
                     })
                     .map(|s| scanner_common::SignalEvidence {
                         signal_type: format!("{:?}", s.signal_type),
@@ -532,7 +534,9 @@ async fn scan_image(
                     })
                     .collect();
 
-                if let Some(finding) = risk_engine.evaluate(identity.clone(), signal, Some(&runtime_signals)) {
+                if let Some(finding) =
+                    risk_engine.evaluate(identity.clone(), signal, Some(&runtime_signals))
+                {
                     let priority = format!("{:?}", finding.priority);
                     metrics.inc_findings(&priority);
                     findings.push(finding);
@@ -541,9 +545,10 @@ async fn scan_image(
         }
         Err(e) => {
             warn!("Vulnerability scan failed for {}: {e}", identity.image);
-            
+
             // Fallback to SBOM
-            let components = sbom_store.classify_runtime_paths(&identity.image, &workload.observed_paths);
+            let components =
+                sbom_store.classify_runtime_paths(&identity.image, &workload.observed_paths);
             for (component, runtime) in components {
                 for cve in component.cves {
                     let signal = scanner_common::RiskSignal {
@@ -570,7 +575,7 @@ async fn scan_image(
             }
         }
     }
-    
+
     Ok(findings)
 }
 
@@ -612,7 +617,7 @@ fn build_attack_paths(
                 tgid: 0,
                 cgroup_id,
                 saddr: 0,
-                daddr: 0, 
+                daddr: 0,
                 sport: 0,
                 dport: 443,
                 family: 2,
@@ -666,11 +671,10 @@ async fn run_analysis_pipeline(
 
         let store = state_store.lock().await;
         let mut resolver = cgroup_resolver.lock().await;
-        
+
         for (cgroup_id, workload) in store.workloads() {
             if let Some((container_id, _pid)) = resolver.resolve(*cgroup_id).await {
                 if let Some(identity) = pod_cache.lookup(&container_id).await {
-                    
                     let mut workload_findings = scan_image(
                         &identity,
                         workload,
@@ -679,8 +683,10 @@ async fn run_analysis_pipeline(
                         &metrics,
                         &vuln_detector,
                         &sbom_store,
-                    ).await.unwrap_or_default();
-                    
+                    )
+                    .await
+                    .unwrap_or_default();
+
                     for finding in &workload_findings {
                         // Output JSON finding for test validation
                         if let Ok(json) = serde_json::to_string(finding) {
@@ -698,8 +704,14 @@ async fn run_analysis_pipeline(
                             }
                         }
                     }
-                    
-                    build_attack_paths(*cgroup_id, &identity, workload, &mut workload_findings, &mut attack_graph);
+
+                    build_attack_paths(
+                        *cgroup_id,
+                        &identity,
+                        workload,
+                        &mut workload_findings,
+                        &mut attack_graph,
+                    );
                     findings.append(&mut workload_findings);
                 }
             }

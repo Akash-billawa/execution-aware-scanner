@@ -509,9 +509,7 @@ impl StreamingEngine {
         );
 
         if self.config.stream_json {
-            println!(
-                "[ALERT] Risk escalation for {path_id}: +{risk_delta:.2}"
-            );
+            println!("[ALERT] Risk escalation for {path_id}: +{risk_delta:.2}");
         }
     }
 

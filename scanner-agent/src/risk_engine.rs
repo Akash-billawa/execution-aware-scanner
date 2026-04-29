@@ -407,9 +407,15 @@ fn categorize_syscall(syscall: &str) -> String {
     match syscall {
         "mmap" | "munmap" | "mprotect" | "brk" | "sbrk" => "memory".to_string(),
         "openat" | "openat2" | "read" | "write" | "close" | "fstat" | "lseek" => "file".to_string(),
-        "execve" | "execveat" | "clone" | "fork" | "vfork" | "exit" | "wait4" => "process".to_string(),
-        "socket" | "connect" | "bind" | "listen" | "accept" | "sendto" | "recvfrom" => "network".to_string(),
-        "rt_sigaction" | "rt_sigprocmask" | "rt_sigreturn" | "kill" | "tkill" => "signal".to_string(),
+        "execve" | "execveat" | "clone" | "fork" | "vfork" | "exit" | "wait4" => {
+            "process".to_string()
+        }
+        "socket" | "connect" | "bind" | "listen" | "accept" | "sendto" | "recvfrom" => {
+            "network".to_string()
+        }
+        "rt_sigaction" | "rt_sigprocmask" | "rt_sigreturn" | "kill" | "tkill" => {
+            "signal".to_string()
+        }
         "clock_gettime" | "gettimeofday" | "nanosleep" => "time".to_string(),
         _ => "other".to_string(),
     }
@@ -447,10 +453,7 @@ mod tests {
         };
 
         let score = engine.calculate_exf_score(&signal);
-        assert!(
-            score >= 9.0,
-            "Expected critical score >= 9.0, got {score}"
-        );
+        assert!(score >= 9.0, "Expected critical score >= 9.0, got {score}");
 
         // High: CVSS 8.0, EPSS 0.5, Not KEV, Reachable
         let signal2 = RiskSignal {
