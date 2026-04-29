@@ -11,6 +11,7 @@ Cargo.lock
 # IDE
 .idea/
 .vscode/
+.claude/
 *.swp
 *.swo
 *~
