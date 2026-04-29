@@ -114,7 +114,7 @@ impl Default for AppConfig {
 
 impl AppConfig {
     pub fn load() -> Result<Self, config::ConfigError> {
-        config::Config::builder()
+        let cfg: Self = config::Config::builder()
             .set_default("bpf.object_path", Self::default().bpf.object_path)?
             .set_default("metrics.bind_addr", Self::default().metrics.bind_addr)?
             .set_default("intel.kev_url", Self::default().intel.kev_url)?
@@ -167,6 +167,41 @@ impl AppConfig {
             .set_default("export.compress", Self::default().export.compress)?
             .add_source(config::Environment::with_prefix("SCANNER").separator("__"))
             .build()?
-            .try_deserialize()
+            .try_deserialize()?;
+
+        cfg.validate()?;
+        Ok(cfg)
+    }
+
+    pub fn validate(&self) -> Result<(), config::ConfigError> {
+        if self.risk.minimum_cvss < 0.0 || self.risk.minimum_cvss > 10.0 {
+            return Err(config::ConfigError::Message(
+                "SCANNER__RISK__MINIMUM_CVSS must be between 0.0 and 10.0".to_string(),
+            ));
+        }
+
+        if self.risk.minimum_epss < 0.0 || self.risk.minimum_epss > 1.0 {
+            return Err(config::ConfigError::Message(
+                "SCANNER__RISK__MINIMUM_EPSS must be between 0.0 and 1.0".to_string(),
+            ));
+        }
+
+        if self.metrics.bind_addr.parse::<std::net::SocketAddr>().is_err() {
+            return Err(config::ConfigError::Message(
+                "SCANNER__METRICS__BIND_ADDR must be a valid socket address (e.g. 0.0.0.0:9898)".to_string(),
+            ));
+        }
+
+        #[cfg(all(feature = "ebpf", target_os = "linux"))]
+        {
+            if !std::path::Path::new(&self.bpf.object_path).exists() {
+                return Err(config::ConfigError::Message(
+                    format!("SCANNER__BPF__OBJECT_PATH does not exist: {}", self.bpf.object_path),
+                ));
+            }
+        }
+
+        Ok(())
     }
 }
+

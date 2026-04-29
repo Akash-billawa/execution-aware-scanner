@@ -4,13 +4,28 @@ use serde::{Deserialize, Serialize};
 use std::time::Duration;
 use tracing::{error, info, warn};
 
+/// Webhook authentication
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum WebhookAuth {
+    None,
+    Bearer(String),
+    Basic { username: String, password: String },
+}
+
+impl Default for WebhookAuth {
+    fn default() -> Self {
+        WebhookAuth::None
+    }
+}
+
 /// Webhook configuration
 #[derive(Debug, Clone, Deserialize)]
 pub struct WebhookConfig {
     /// Webhook endpoint URL
     pub url: String,
     /// Authentication token (optional)
-    pub token: Option<String>,
+    #[serde(default)]
+    pub auth: WebhookAuth,
     /// Request timeout
     pub timeout_secs: u64,
     /// Maximum retries
@@ -28,9 +43,9 @@ pub struct WebhookConfig {
 impl Default for WebhookConfig {
     fn default() -> Self {
         Self {
-            url: "http://localhost:8080/webhook".to_string(),
-            token: None,
-            timeout_secs: 30,
+            url: String::new(),
+            auth: WebhookAuth::None,
+            timeout_secs: 10,
             max_retries: 3,
             batch_size: 10,
             batch_timeout_secs: 5,
@@ -112,9 +127,11 @@ impl WebhookExporter {
                 .header("X-Scanner-ID", &self.scanner_id)
                 .header("X-Event-Type", "finding");
 
-            if let Some(token) = &self.config.token {
-                request = request.header("Authorization", format!("Bearer {token}"));
-            }
+            request = match &self.config.auth {
+                WebhookAuth::None => request,
+                WebhookAuth::Bearer(token) => request.bearer_auth(token),
+                WebhookAuth::Basic { username, password } => request.basic_auth(username, Some(password)),
+            };
 
             match request.body(json.clone()).send().await {
                 Ok(response) => {
@@ -192,9 +209,11 @@ impl WebhookExporter {
                 .header("X-Event-Type", "finding-batch")
                 .header("X-Batch-Size", findings.len().to_string());
 
-            if let Some(token) = &self.config.token {
-                request = request.header("Authorization", format!("Bearer {token}"));
-            }
+            request = match &self.config.auth {
+                WebhookAuth::None => request,
+                WebhookAuth::Bearer(token) => request.bearer_auth(token),
+                WebhookAuth::Basic { username, password } => request.basic_auth(username, Some(password)),
+            };
 
             match request.body(json.clone()).send().await {
                 Ok(response) => {

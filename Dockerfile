@@ -42,7 +42,8 @@ FROM debian:bookworm-slim
 
 RUN apt-get update \
     && apt-get install -y --no-install-recommends ca-certificates libelf1 curl \
-    && rm -rf /var/lib/apt/lists/*
+    && rm -rf /var/lib/apt/lists/* \
+    && useradd --system --no-create-home --uid 65532 scanner
 
 # Copy agent binary
 COPY --from=builder /src/target/release/scanner-agent /usr/local/bin/scanner-agent
@@ -57,4 +58,8 @@ COPY examples/sboms /var/lib/scanner/sboms
 HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
     CMD curl -f http://localhost:9898/health || exit 1
 
+# Note: The Kubernetes manifest must grant capabilities (CAP_BPF, CAP_PERFMON, CAP_NET_ADMIN)
+# or run in privileged mode to allow eBPF attachment despite running as non-root.
+USER 65532:65532
 ENTRYPOINT ["/usr/local/bin/scanner-agent"]
+

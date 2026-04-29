@@ -158,6 +158,21 @@ struct AppState {
     event_stats: Arc<Mutex<ConsumerStats>>,
 }
 
+#[cfg(unix)]
+async fn wait_for_shutdown() {
+    use tokio::signal::unix::{signal, SignalKind};
+    let mut sigterm = signal(SignalKind::terminate()).expect("Failed to bind SIGTERM");
+    tokio::select! {
+        _ = tokio::signal::ctrl_c() => {},
+        _ = sigterm.recv() => {},
+    }
+}
+
+#[cfg(not(unix))]
+async fn wait_for_shutdown() {
+    tokio::signal::ctrl_c().await.ok();
+}
+
 #[tokio::main]
 async fn main() -> Result<(), ScannerError> {
     tracing_subscriber::fmt()
@@ -330,7 +345,7 @@ async fn main() -> Result<(), ScannerError> {
     if let Some(webhook_url) = &cli.webhook_url {
         let webhook_config = webhook::WebhookConfig {
             url: webhook_url.clone(),
-            token: None,
+            auth: webhook::WebhookAuth::None,
             timeout_secs: 30,
             max_retries: 3,
             batch_size: 10,
@@ -384,7 +399,7 @@ async fn main() -> Result<(), ScannerError> {
         };
 
     // Wait for completion or signal
-    tokio::signal::ctrl_c().await.ok();
+    wait_for_shutdown().await;
     info!("Shutdown signal received");
 
     // Trigger shutdown

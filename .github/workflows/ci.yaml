@@ -62,7 +62,7 @@ jobs:
           if-no-files-found: ignore
 
       - name: Run tests
-        run: cargo test -p scanner-common --release
+        run: cargo test --workspace --no-default-features
         env:
           RUST_LOG: debug
 
@@ -140,3 +140,12 @@ jobs:
 
       - name: Run cargo audit
         run: cargo audit || true
+
+  # Docker build check
+  docker-build:
+    name: Docker Build Check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build Docker Image
+        run: docker build -t scanner:test .
