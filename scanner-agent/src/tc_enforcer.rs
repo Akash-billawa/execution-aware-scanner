@@ -1,73 +1,14 @@
-#![cfg(all(feature = "ebpf", target_os = "linux"))]
 
-use crate::error::ScannerError;
-use aya::maps::HashMap as BpfHashMap;
-use aya::Ebpf;
-use std::collections::{BTreeSet, HashSet};
-use std::net::Ipv4Addr;
-use std::time::Duration;
-use tokio::time::Instant;
-use tracing::{debug, error, info, warn};
-
-/// TC enforcement controller for traffic filtering
-pub struct TcEnforcer {
-    bpf: Option<Ebpf>,
-    blocked_ips: BTreeSet<u32>,
-    blocked_ports: BTreeSet<u16>,
-    blocked_domains: HashSet<String>,
-    last_update: Instant,
-}
-
-/// Traffic rule types
-#[derive(Debug, Clone)]
-pub enum TrafficRule {
-    /// Block specific IP
-    BlockIp { ip: Ipv4Addr, reason: String },
-    /// Block specific port
-    BlockPort { port: u16, direction: Direction },
-    /// Block CIDR range
-    BlockCidr { cidr: String, reason: String },
-    /// Rate limit by cgroup
-    RateLimit { cgroup_id: u64, rate_pps: u32 },
-}
-
-#[derive(Debug, Clone, Copy)]
-pub enum Direction {
-    Ingress,
-    Egress,
-    Both,
-}
-
-/// Enforcement action result
-#[derive(Debug)]
-pub struct EnforcementResult {
-    pub rule: TrafficRule,
-    pub applied: bool,
-    pub error: Option<String>,
-}
-
-impl TcEnforcer {
-    pub fn new() -> Self {
-        Self {
-            bpf: None,
-            blocked_ips: BTreeSet::new(),
-            blocked_ports: BTreeSet::new(),
-            blocked_domains: HashSet::new(),
-            last_update: Instant::now(),
-        }
-    }
-
-    pub fn with_bpf(mut self, bpf: Ebpf) -> Self {
-        self.bpf = Some(bpf);
-        self
-    }
-
-    /// Block IP address via XDP
     pub async fn block_ip(
         &mut self,
         ip: Ipv4Addr,
         reason: &str,
     ) -> Result<EnforcementResult, ScannerError> {
+        // Return error if BPF is not available (for testing/mock scenarios)
+        if self.bpf.is_none() {
+            return Err(ScannerError::Bpf("BPF not available".to_string()));
+        }
+
         let ip_u32 = u32::from(ip);
 
         if let Some(ref mut bpf) = self.bpf {
@@ -89,7 +30,7 @@ impl TcEnforcer {
                 .map_mut("BLOCKED_IPS")
                 .ok_or_else(|| ScannerError::Bpf("BLOCKED_IPS map not found".to_string()))?
                 .try_into()
-                .map_err(|e| ScannerError::Bpf(format!("Failed to access TC map: {}", e)))?;
+                .map_err(|e| ScannerError::Bpf(format!("Failed to block IP in TC: {}", e)))?;
 
             blocked
                 .insert(ip_u32, 1, 0)
@@ -263,7 +204,7 @@ impl TcEnforcer {
                 }
             }
 
-            if let Ok(mut blocked) = BpfHashMap::<_, u32, u8>::try_from(
+            if let Ok(mut blocked) = BpfHashMap::<_, u32, v8>::try_from(
                 bpf.map_mut("BLOCKED_IPS")
                     .ok_or_else(|| ScannerError::Bpf("BLOCKED_IPS map not found".to_string()))?,
             ) {
