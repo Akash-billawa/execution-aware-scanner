@@ -13,8 +13,8 @@ pub mod proto {
 use proto::remediator_client::RemediatorClient;
 #[cfg(feature = "remediator-proto")]
 use proto::{
-    BlockRequest, EnforcementAction, QuarantineRequest, RemediationRequest,
-    SeccompProfileRequest, ThreatLevel,
+    BlockRequest, EnforcementAction, QuarantineRequest, RemediationRequest, SeccompProfileRequest,
+    ThreatLevel,
 };
 #[cfg(feature = "remediator-proto")]
 use tonic::{transport::Channel, Request};
