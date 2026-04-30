@@ -1,18 +1,19 @@
 use crate::config::RiskConfig;
 use crate::error::ScannerError;
 use scanner_common::{Finding, SeccompProfile};
+use std::collections::HashMap;
 
 // Conditionally compile protobuf code only if it was generated
 #[cfg(feature = "remediator-proto")]
 pub mod proto {
-    tonic::include_proto!("remediator");
+    include!(concat!(env!("OUT_DIR"), "/remediator.rs"));
 }
 
 #[cfg(feature = "remediator-proto")]
 use proto::remediator_client::RemediatorClient;
 #[cfg(feature = "remediator-proto")]
 use proto::{
-    BlockRequest, EnforcementAction, EnforcementRule, QuarantineRequest, RemediationRequest,
+    BlockRequest, EnforcementAction, QuarantineRequest, RemediationRequest,
     SeccompProfileRequest, ThreatLevel,
 };
 #[cfg(feature = "remediator-proto")]
@@ -87,6 +88,7 @@ impl RemediatorService {
             is_kev: finding.signal.kev,
             package_name: finding.signal.package.clone(),
             recommended_action: finding.recommendation.clone(),
+            labels: HashMap::new(),
         };
 
         let response = client
@@ -171,6 +173,7 @@ impl RemediatorService {
             direction: "egress".to_string(),
             reason: "Suspicious network activity detected".to_string(),
             duration_sec: 3600,
+            allowed_ips: vec![],
         };
 
         let _response = client
@@ -218,6 +221,7 @@ impl RemediatorService {
             reason: reason.to_string(),
             isolate_network: true,
             isolate_storage: false,
+            duration_minutes: 0,
         };
 
         let _response = client
@@ -248,13 +252,13 @@ impl RemediatorService {
 }
 
 #[cfg(feature = "remediator-proto")]
-fn priority_to_threat_level(priority: &Priority) -> i32 {
+fn priority_to_threat_level(priority: &scanner_common::Priority) -> i32 {
     match priority {
-        Priority::Informational => 0,
-        Priority::Low => 1,
-        Priority::Medium => 2,
-        Priority::High => 3,
-        Priority::Critical => 4,
+        scanner_common::Priority::Informational => 0,
+        scanner_common::Priority::Low => 1,
+        scanner_common::Priority::Medium => 2,
+        scanner_common::Priority::High => 3,
+        scanner_common::Priority::Critical => 4,
     }
 }
 

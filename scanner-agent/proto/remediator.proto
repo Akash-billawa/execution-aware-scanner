@@ -1,6 +1,6 @@
 syntax = "proto3";
 
-package scanner;
+package remediator;
 
 option go_package = "github.com/execution-aware-scanner/proto/remediator";
 
@@ -8,19 +8,19 @@ option go_package = "github.com/execution-aware-scanner/proto/remediator";
 service Remediator {
   // Submit a finding for remediation
   rpc Remediate(RemediationRequest) returns (RemediationResponse);
-  
+   
   // Apply seccomp profile to workload
   rpc ApplySeccomp(SeccompProfileRequest) returns (SeccompResponse);
-  
+   
   // Block network traffic
   rpc BlockNetwork(BlockRequest) returns (BlockResponse);
-  
+   
   // Quarantine workload
   rpc Quarantine(QuarantineRequest) returns (QuarantineResponse);
-  
+   
   // Get remediation status
   rpc GetStatus(StatusRequest) returns (StatusResponse);
-  
+   
   // Stream findings for real-time processing
   rpc StreamFindings(stream Finding) returns (StreamResponse);
 }
