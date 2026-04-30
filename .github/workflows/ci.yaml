@@ -35,8 +35,9 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y protobuf-compiler clang llvm libelf-dev linux-headers-$(uname -r)
-          # Install bpf-linker via cargo
-          cargo install bpf-linker
+          # Install bpf-linker via cargo using nightly (needed for newer cargo-platform)
+          rustup toolchain install nightly
+          cargo +nightly install bpf-linker
       
       - name: Install dependencies (macOS)
         if: runner.os == 'macOS'
