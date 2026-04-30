@@ -1,3 +1,17 @@
+#![allow(dead_code)]
+#![allow(unused_variables)]
+#![allow(unused_imports)]
+#![allow(unused_mut)]
+#![allow(
+    clippy::too_many_arguments,
+    clippy::manual_clamp,
+    clippy::collapsible_match,
+    clippy::derivable_impls,
+    clippy::enum_variant_names,
+    clippy::ptr_arg,
+    clippy::field_reassign_with_default
+)]
+
 mod attack_graph;
 mod cgroup;
 mod config;
