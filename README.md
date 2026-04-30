@@ -73,6 +73,19 @@ sudo apt update
 sudo apt install -y git curl build-essential clang llvm libelf-dev linux-headers-$(uname -r)
 ```
 
+## Linux Validation Steps
+
+To validate the eBPF runtime on a Linux host:
+
+1. Build with eBPF features: `cargo build --release -p scanner-agent --features ebpf`
+2. Run the scanner: `sudo ./target/release/scanner-agent --features ebpf`
+3. Verify eBPF programs loaded: `sudo bpftool prog list | grep -E "execve|tracepoint|kprobe"`
+4. Generate test traffic (e.g., curl from a container with known CVE)
+5. Check logs for REACHABLE findings with correct library paths
+6. Validate cleanup: After shutdown, `sudo bpftool prog list` should show only system programs
+
+See [docs/VALIDATION_RESULTS.md](docs/VALIDATION_RESULTS.md) for detailed validation results and procedures.
+
 ## Runtime Model
 
 The Linux runtime now supports the actual unified kernel event schema emitted by the eBPF crate:
