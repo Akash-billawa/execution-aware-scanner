@@ -204,10 +204,10 @@
                 }
             }
 
-            if let Ok(mut blocked) = BpfHashMap::<_, u32, v8>::try_from(
-                bpf.map_mut("BLOCKED_IPS")
-                    .ok_or_else(|| ScannerError::Bpf("BLOCKED_IPS map not found".to_string()))?,
-            ) {
+             if let Ok(mut blocked) = BpfHashMap::<_, u32, u8>::try_from(
+                 bpf.map_mut("BLOCKED_IPS")
+                     .ok_or_else(|| ScannerError::Bpf("BLOCKED_IPS map not found".to_string()))?,
+             ) {
                 for ip in &self.blocked_ips {
                     let _ = blocked.remove(ip);
                 }
