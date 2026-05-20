@@ -87,10 +87,14 @@ jobs:
     needs: test
     steps:
       - uses: actions/checkout@v4
-      
+
+      - name: Set lowercase owner name
+        id: vars
+        run: echo "owner=$(echo '${{ github.repository_owner }}' | tr '[:upper:]' '[:lower:]')" >> "$GITHUB_OUTPUT"
+
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
-      
+
       - name: Log in to Container Registry
         uses: docker/login-action@v3
         with:
@@ -103,6 +107,6 @@ jobs:
         with:
           context: .
           push: true
-          tags: ghcr.io/${{ github.repository_owner }}/execution-aware-scanner:latest
-          cache-from: type=registry,ref=ghcr.io/${{ github.repository_owner }}/execution-aware-scanner:cache
-          cache-to: type=registry,ref=ghcr.io/${{ github.repository_owner }}/execution-aware-scanner:cache,mode=max
+          tags: ghcr.io/${{ steps.vars.outputs.owner }}/execution-aware-scanner:latest
+          cache-from: type=registry,ref=ghcr.io/${{ steps.vars.outputs.owner }}/execution-aware-scanner:cache
+          cache-to: type=registry,ref=ghcr.io/${{ steps.vars.outputs.owner }}/execution-aware-scanner:cache,mode=max
