@@ -170,20 +170,33 @@ impl TcEnforcer {
                             match aya::maps::HashMap::<_, u64, u8>::try_from(map) {
                                 Ok(mut denylist) => {
                                     let _ = denylist.remove(&cgroup_id);
-                                    info!("Auto-unquarantine cgroup {} — removed from denylist", cgroup_id);
+                                    info!(
+                                        "Auto-unquarantine cgroup {} — removed from denylist",
+                                        cgroup_id
+                                    );
                                 }
                                 Err(e) => {
-                                    tracing::warn!("Auto-unquarantine: failed to access denylist map: {}", e);
+                                    tracing::warn!(
+                                        "Auto-unquarantine: failed to access denylist map: {}",
+                                        e
+                                    );
                                 }
                             }
                         }
                     }
                     Err(e) => {
-                        tracing::warn!("Auto-unquarantine: failed to load BPF for cgroup {}: {}", cgroup_id, e);
+                        tracing::warn!(
+                            "Auto-unquarantine: failed to load BPF for cgroup {}: {}",
+                            cgroup_id,
+                            e
+                        );
                     }
                 }
             }
-            info!("Auto-unquarantine cgroup {} after {:?}", cgroup_id, duration);
+            info!(
+                "Auto-unquarantine cgroup {} after {:?}",
+                cgroup_id, duration
+            );
         });
 
         Ok(())
@@ -231,10 +244,10 @@ impl TcEnforcer {
                 }
             }
 
-             if let Ok(mut blocked) = BpfHashMap::<_, u32, u8>::try_from(
-                 bpf.map_mut("BLOCKED_IPS")
-                     .ok_or_else(|| ScannerError::Bpf("BLOCKED_IPS map not found".to_string()))?,
-             ) {
+            if let Ok(mut blocked) = BpfHashMap::<_, u32, u8>::try_from(
+                bpf.map_mut("BLOCKED_IPS")
+                    .ok_or_else(|| ScannerError::Bpf("BLOCKED_IPS map not found".to_string()))?,
+            ) {
                 for ip in &self.blocked_ips {
                     let _ = blocked.remove(ip);
                 }
@@ -340,9 +353,9 @@ impl ThreatIntelFeed {
 
     /// Check if domain is known bad
     pub fn is_known_bad_domain(&self, domain: &str) -> bool {
-        self.known_bad_domains.iter().any(|d| {
-            domain == d.as_str() || domain.ends_with(&format!(".{}", d))
-        })
+        self.known_bad_domains
+            .iter()
+            .any(|d| domain == d.as_str() || domain.ends_with(&format!(".{}", d)))
     }
 
     /// Get indicators as C2Indicator list

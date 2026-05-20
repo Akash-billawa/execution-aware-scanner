@@ -441,9 +441,7 @@ impl RuntimeAttackGraph {
 
     /// Aggregate network event with existing edge (burst collapsing)
     fn aggregate_network_event(&mut self, pid: u32, event: &NetEvent) {
-        let process_idx = self
-            .node_indices
-            .get(&format!("proc:{}", pid));
+        let process_idx = self.node_indices.get(&format!("proc:{pid}"));
         if process_idx.is_none() {
             return;
         }

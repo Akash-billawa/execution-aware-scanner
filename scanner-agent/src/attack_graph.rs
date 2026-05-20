@@ -223,7 +223,12 @@ impl AttackPathAnalyzer {
         let entry_points = graph
             .graph
             .node_indices()
-            .filter(|&idx| matches!(graph.graph.node_weight(idx), Some(AttackNode::External { .. })))
+            .filter(|&idx| {
+                matches!(
+                    graph.graph.node_weight(idx),
+                    Some(AttackNode::External { .. })
+                )
+            })
             .collect();
 
         let critical_assets = graph

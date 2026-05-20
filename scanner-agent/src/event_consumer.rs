@@ -936,7 +936,7 @@ enum SecurityEventKind {
 impl SecurityEventKind {
     fn try_from_u8(val: u8) -> Option<Self> {
         match val {
-            0..=7 => Some(unsafe { core::mem::transmute(val) }),
+            0..=7 => Some(unsafe { core::mem::transmute::<u8, SecurityEventKind>(val) }),
             _ => None,
         }
     }

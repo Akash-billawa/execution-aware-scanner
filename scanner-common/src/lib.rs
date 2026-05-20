@@ -32,7 +32,7 @@ impl EventKind {
     /// Prevents undefined behavior when constructing enums from raw bytes.
     pub fn try_from_u8(val: u8) -> Option<Self> {
         match val {
-            1..=17 => Some(unsafe { core::mem::transmute(val) }),
+            1..=17 => Some(unsafe { core::mem::transmute::<u8, EventKind>(val) }),
             _ => None,
         }
     }
