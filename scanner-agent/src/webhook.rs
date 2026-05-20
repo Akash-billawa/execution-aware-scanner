@@ -168,7 +168,8 @@ impl WebhookExporter {
             }
 
             if attempts < self.config.max_retries {
-                let backoff = Duration::from_millis(100 * 2_u64.pow(attempts - 1));
+                // Exponential backoff with max cap of 30 seconds
+                let backoff = Duration::from_millis((100 * 2_u64.pow(attempts - 1)).min(30_000));
                 tokio::time::sleep(backoff).await;
             }
         }
@@ -252,7 +253,8 @@ impl WebhookExporter {
             }
 
             if attempts < self.config.max_retries {
-                let backoff = Duration::from_millis(100 * 2_u64.pow(attempts - 1));
+                // Exponential backoff with max cap of 30 seconds
+                let backoff = Duration::from_millis((100 * 2_u64.pow(attempts - 1)).min(30_000));
                 tokio::time::sleep(backoff).await;
             }
         }

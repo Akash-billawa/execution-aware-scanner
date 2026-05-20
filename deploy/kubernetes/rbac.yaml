@@ -16,7 +16,7 @@ metadata:
 rules:
   # Pod information for container identification
   - apiGroups: [""]
-    resources: ["pods", "nodes", "namespaces", "services", "endpoints"]
+    resources: ["pods", "nodes", "namespaces"]
     verbs: ["get", "list", "watch"]
   # Container runtime info
   - apiGroups: [""]
@@ -26,18 +26,14 @@ rules:
   - apiGroups: [""]
     resources: ["configmaps"]
     verbs: ["get", "list", "watch"]
-  # For seccomp profile management
-  - apiGroups: ["policy"]
-    resources: ["podsecuritypolicies"]
-    verbs: ["get", "list", "watch", "create", "update", "delete"]
-  # Network policies for enforcement
-  - apiGroups: ["networking.k8s.io"]
-    resources: ["networkpolicies"]
-    verbs: ["get", "list", "watch", "create", "update", "delete"]
   # Events for logging
   - apiGroups: [""]
     resources: ["events"]
     verbs: ["create", "patch"]
+  # SeccompProfiles for enforcement (scoped to own namespace via RoleBinding)
+  - apiGroups: ["security-profiles-operator.x-k8s.io"]
+    resources: ["seccompprofiles"]
+    verbs: ["get", "list", "watch", "create", "update", "delete"]
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding

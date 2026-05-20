@@ -3,6 +3,9 @@ use std::collections::BTreeMap;
 use std::path::Path;
 use tokio::fs;
 
+/// Maximum cache entries to prevent unbounded growth on high-churn nodes
+const MAX_CACHE_ENTRIES: usize = 10000;
+
 /// Resolves cgroup IDs to container IDs and pod information by parsing /proc.
 #[derive(Clone, Debug)]
 pub struct CgroupResolver {
@@ -27,6 +30,12 @@ impl CgroupResolver {
             return Some(entry.clone());
         }
         if let Ok(result) = self.scan_for_cgroup(cgroup_id).await {
+            // Evict oldest entries if cache is at capacity
+            if self.cache.len() >= MAX_CACHE_ENTRIES {
+                if let Some(oldest_key) = self.cache.keys().next().copied() {
+                    self.cache.remove(&oldest_key);
+                }
+            }
             self.cache.insert(cgroup_id, result.clone());
             return Some(result);
         }
@@ -64,7 +73,22 @@ impl CgroupResolver {
             }
             // cgroup v1 format: hierarchy-ID:controller-list:cgroup-path
             // cgroup v2 format: 0::cgroup-path
+            let hierarchy_id = parts[0];
             let cgroup_path_str = parts[2];
+
+            // Validate that this cgroup line matches the requested cgroup_id.
+            // In cgroup v2, hierarchy-ID is always "0". In v1, it's a numeric ID.
+            // We check if the hierarchy ID parses to the requested cgroup_id,
+            // or if it's v2 (ID "0") where the cgroup_id is the inode of the path.
+            // Since we can't easily get the inode from the path string, we accept
+            // v2 entries when cgroup_id matches a numeric parse of the hierarchy ID,
+            // or when the hierarchy ID is "0" (v2) and the path contains a container ID.
+            if let Ok(hid) = hierarchy_id.parse::<u64>() {
+                if hid != 0 && hid != cgroup_id {
+                    continue; // v1 hierarchy doesn't match
+                }
+            }
+
             if let Some(extracted_id) = extract_container_id(cgroup_path_str) {
                 return Some(extracted_id);
             }
@@ -81,11 +105,6 @@ impl CgroupResolver {
 /// Extracts container ID from cgroup path.
 /// Handles Docker, containerd, and cri-o container ID formats.
 fn extract_container_id(cgroup_path: &str) -> Option<String> {
-    // Docker: .../docker/<container_id>
-    // containerd: .../containerd/<container_id>
-    // cri-o: .../cri-o/<container_id>
-    // k8s: .../kubepods/burstable/<pod_uid>/<container_id>
-
     let parts: Vec<&str> = cgroup_path.split('/').filter(|p| !p.is_empty()).collect();
 
     for (i, part) in parts.iter().enumerate() {
@@ -103,7 +122,6 @@ fn extract_container_id(cgroup_path: &str) -> Option<String> {
                     .filter(|id| is_container_id(id));
             }
             "kubepods" => {
-                // Look for container ID at end of path
                 if let Some(last) = parts.last() {
                     let normalized = normalize_id(last);
                     if is_container_id(&normalized) {

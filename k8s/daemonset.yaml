@@ -24,12 +24,13 @@ spec:
         securityContext:
           capabilities:
             add:
-              - SYS_ADMIN
-              - SYS_RESOURCE
-              - NET_ADMIN
               - BPF
+              - PERFMON
+              - NET_ADMIN
           readOnlyRootFilesystem: true
           allowPrivilegeEscalation: false
+          runAsUser: 65532
+          runAsNonRoot: true
         ports:
         - name: metrics
           containerPort: 9898

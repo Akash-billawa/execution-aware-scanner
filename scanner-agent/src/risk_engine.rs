@@ -51,11 +51,15 @@ impl ExfRiskEngine {
     /// Formula: EXF = (CVSS × 0.50) + (EPSS × 10 × 0.30) + KEV + Runtime + signal boost.
     /// Enhanced with signal weighting for precise risk calculation
     pub fn calculate_exf_score(&self, signal: &RiskSignal) -> f32 {
+        // Validate inputs — reject nonsensical values
+        let cvss = signal.cvss.clamp(0.0, 10.0);
+        let epss = signal.epss.clamp(0.0, 1.0);
+
         // Normalize CVSS (already 0-10)
-        let cvss_component = signal.cvss * 0.50;
+        let cvss_component = cvss * 0.50;
 
         // EPSS is 0-1, scale to 0-10
-        let epss_component = signal.epss * 10.0 * 0.30;
+        let epss_component = epss * 10.0 * 0.30;
 
         // KEV bonus: +1.5 points if known exploited
         let kev_component = if signal.kev { 1.5 } else { 0.0 };
@@ -341,16 +345,17 @@ impl ExfRiskEngine {
             },
         );
 
-        // Update history
-        cache
-            .history
-            .entry(cve_id.to_string())
-            .or_default()
-            .push(RiskSnapshot {
-                timestamp: chrono::Utc::now(),
-                score,
-                runtime_reachable: matches!(signal.runtime, RuntimeDisposition::Reachable),
-            });
+        // Update history with cap (max 100 entries per CVE)
+        const MAX_HISTORY_PER_CVE: usize = 100;
+        let history = cache.history.entry(cve_id.to_string()).or_default();
+        if history.len() >= MAX_HISTORY_PER_CVE {
+            history.remove(0); // Remove oldest
+        }
+        history.push(RiskSnapshot {
+            timestamp: chrono::Utc::now(),
+            score,
+            runtime_reachable: matches!(signal.runtime, RuntimeDisposition::Reachable),
+        });
 
         score
     }

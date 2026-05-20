@@ -465,7 +465,8 @@ impl WebhookSender {
                         attempts, delay
                     );
                     tokio::time::sleep(delay).await;
-                    delay *= 2;
+                    // Exponential backoff with max cap of 30 seconds
+                    delay = (delay * 2).min(Duration::from_secs(30));
                 }
             }
         }
@@ -534,12 +535,23 @@ impl WebhookManager {
         false
     }
 
+    /// Maximum dedup cache entries to prevent unbounded growth
+    const MAX_DEDUP_ENTRIES: usize = 10000;
+
     /// Mark alert as sent
     pub async fn mark_sent(&self, path_id: &str) {
         let mut cache = self.dedup_cache.write().await;
+
+        // Evict oldest entries if at capacity
+        if cache.len() >= Self::MAX_DEDUP_ENTRIES && !cache.contains_key(path_id) {
+            if let Some(oldest_key) = cache.iter().min_by_key(|(_, v)| *v).map(|(k, _)| k.clone()) {
+                cache.remove(&oldest_key);
+            }
+        }
+
         cache.insert(path_id.to_string(), Instant::now());
 
-        // Cleanup old entries
+        // Cleanup expired entries
         let now = Instant::now();
         cache.retain(|_, v| now.duration_since(*v) < self.dedup_ttl);
     }

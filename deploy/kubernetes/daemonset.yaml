@@ -75,8 +75,10 @@ spec:
             privileged: false
             allowPrivilegeEscalation: false
             readOnlyRootFilesystem: true
+            runAsUser: 65532
+            runAsNonRoot: true
             capabilities:
-              add: ["BPF", "PERFMON", "NET_ADMIN", "SYS_ADMIN"]
+              add: ["BPF", "PERFMON", "NET_ADMIN"]
           volumeMounts:
             - name: sys-fs-bpf
               mountPath: /sys/fs/bpf

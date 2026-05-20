@@ -82,12 +82,16 @@ pub fn library_matches_package(path: &str, package: &str) -> bool {
         .unwrap_or(file_name);
 
     let aliases = package_aliases(&package_lc);
-    path_lc.contains(&package_lc)
-        || package_lc.contains(file_name)
-        || package_lc.contains(lib_stem)
-        || aliases
-            .iter()
-            .any(|alias| path_lc.contains(alias) || file_name.contains(alias) || lib_stem == *alias)
+    // Require minimum length 3 for substring matching to prevent false positives
+    // (e.g., glibc alias "c" matching every path containing "c")
+    let pkg_match = package_lc.len() >= 3 && path_lc.contains(&package_lc);
+    let fname_match = file_name.len() >= 3 && package_lc.contains(file_name);
+    let stem_match = lib_stem.len() >= 3 && package_lc.contains(lib_stem);
+    let alias_match = aliases.iter().any(|alias| {
+        alias.len() >= 3
+            && (path_lc.contains(alias) || file_name.contains(alias) || lib_stem == *alias)
+    });
+    pkg_match || fname_match || stem_match || alias_match
 }
 
 fn normalize_package_name(package: &str) -> String {

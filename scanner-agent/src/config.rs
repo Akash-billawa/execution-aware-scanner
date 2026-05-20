@@ -198,6 +198,12 @@ impl AppConfig {
             ));
         }
 
+        if self.intel.refresh_interval_secs < 60 {
+            return Err(config::ConfigError::Message(
+                "SCANNER__INTEL__REFRESH_INTERVAL_SECS must be at least 60 seconds".to_string(),
+            ));
+        }
+
         #[cfg(all(feature = "ebpf", target_os = "linux"))]
         {
             if !std::path::Path::new(&self.bpf.object_path).exists() {

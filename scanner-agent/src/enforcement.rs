@@ -140,6 +140,8 @@ impl EnforcementController {
         }
 
         // Essential syscalls that must always be allowed
+        // Note: mprotect is intentionally excluded — it's used for code injection attacks
+        // (making memory W+X). If the workload needs it, it will appear in the observed set.
         let mut allowed_syscalls: BTreeSet<String> = [
             "exit",
             "exit_group",
@@ -148,7 +150,6 @@ impl EnforcementController {
             "brk",
             "mmap",
             "munmap",
-            "mprotect",
             "arch_prctl",
             "set_tid_address",
         ]

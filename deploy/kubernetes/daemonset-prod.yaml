@@ -145,18 +145,19 @@ spec:
               memory: "512Mi"
           
           # Security context
+          # BPF + PERFMON are sufficient for eBPF on kernels 5.8+
+          # SYS_ADMIN removed — it grants near-root host access
           securityContext:
             privileged: false
             allowPrivilegeEscalation: false
             readOnlyRootFilesystem: true
-            runAsUser: 0  # Required for eBPF
+            runAsUser: 65532
+            runAsNonRoot: true
             capabilities:
               add:
                 - BPF
                 - PERFMON
                 - NET_ADMIN
-                - SYS_ADMIN
-                - SYS_RESOURCE
           
           # Health probes
           livenessProbe:
@@ -187,7 +188,7 @@ spec:
           volumeMounts:
             - name: sys-fs-bpf
               mountPath: /sys/fs/bpf
-              mountPropagation: Bidirectional
+              mountPropagation: HostToContainer
             
             - name: proc
               mountPath: /host/proc

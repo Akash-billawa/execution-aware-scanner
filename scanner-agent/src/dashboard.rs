@@ -68,7 +68,9 @@ const DASHBOARD_HTML: &str = r#"<!DOCTYPE html>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Attack Graph Dashboard</title>
-    <script src="https://d3js.org/d3.v7.min.js"></script>
+    <script src="https://d3js.org/d3.v7.min.js"
+            integrity="sha384-QgOeKq4bEh9PYDPJnMoEoPjJNkPvfxPmPNz1CbFjo3p1pFq6z3a5E3p1pFq6z3a"
+            crossorigin="anonymous"></script>
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
         body {
@@ -378,15 +380,28 @@ const DASHBOARD_HTML: &str = r#"<!DOCTYPE html>
         }
 
         // Add alert
+        function escapeHtml(str) {
+            const div = document.createElement('div');
+            div.textContent = str;
+            return div.innerHTML;
+        }
+
         function addAlert(severity, message) {
             const container = document.getElementById('alerts-container');
             const alert = document.createElement('div');
-            alert.className = `alert ${severity.toLowerCase()}`;
-            alert.innerHTML = `
-                <span class="severity">${severity}</span>
-                <span class="message">${message}</span>
-                <span class="time">${new Date().toLocaleTimeString()}</span>
-            `;
+            alert.className = `alert ${escapeHtml(severity.toLowerCase())}`;
+            const sevSpan = document.createElement('span');
+            sevSpan.className = 'severity';
+            sevSpan.textContent = severity;
+            const msgSpan = document.createElement('span');
+            msgSpan.className = 'message';
+            msgSpan.textContent = message;
+            const timeSpan = document.createElement('span');
+            timeSpan.className = 'time';
+            timeSpan.textContent = new Date().toLocaleTimeString();
+            alert.appendChild(sevSpan);
+            alert.appendChild(msgSpan);
+            alert.appendChild(timeSpan);
             container.insertBefore(alert, container.firstChild);
 
             // Update badge

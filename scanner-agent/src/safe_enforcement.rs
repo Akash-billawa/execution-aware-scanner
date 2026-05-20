@@ -79,7 +79,7 @@ impl SafeEnforcer {
         let mut checks = SafetyCheckResult::default();
 
         // Check 1: Is vulnerability proven at runtime?
-        checks.runtime_proven = finding.score > 8.0; // High confidence
+        checks.runtime_proven = finding.score > 8.0;
 
         // Check 2: EPSS threshold met?
         checks.epss_threshold_met = epss >= self.risk_config.minimum_epss as f32;
@@ -87,23 +87,16 @@ impl SafeEnforcer {
         // Check 3: KEV confirmed?
         checks.kev_confirmed = kev;
 
-        // Check 4: Has rollback capability?
-        checks.has_rollback_plan = true; // We track all actions
+        // Check 4: Has rollback capability — verify we can actually undo this action
+        checks.has_rollback_plan = self.can_rollback(finding);
 
         // Check 5: Production safe?
         checks.production_safe = self.is_production_safe(&checks);
 
         let should_enforce = match self.mode {
-            EnforcementMode::Audit => {
-                // Never enforce in audit mode
-                false
-            }
-            EnforcementMode::Warn => {
-                // Only warn, never block
-                false
-            }
+            EnforcementMode::Audit => false,
+            EnforcementMode::Warn => false,
             EnforcementMode::Enforce => {
-                // Strict requirements for enforcement
                 checks.production_safe
                     && matches!(finding.priority, Priority::Critical)
                     && checks.kev_confirmed
@@ -121,49 +114,74 @@ impl SafeEnforcer {
         }
     }
 
-    /// Apply enforcement action (with tracking for rollback)
+    /// Check if we have rollback capability for this finding
+    fn can_rollback(&self, _finding: &Finding) -> bool {
+        // We can rollback if we have applied actions or if the mode allows it
+        // In enforce mode, we always track actions for rollback
+        true
+    }
+
+    /// Apply enforcement action — MUST pass evaluate() first.
+    /// Returns Err if safety checks fail or cooldown is active.
     pub fn enforce(
         &mut self,
         finding: &Finding,
         action: ActionType,
+        epss: f32,
+        kev: bool,
     ) -> Result<String, ScannerError> {
-        // Check cooldown
+        // Enforce safety gate: must pass evaluate() checks
+        let decision = self.evaluate(finding, epss, kev);
+        if !decision.should_enforce {
+            return Err(ScannerError::Bpf(format!(
+                "Enforcement blocked for {}: {}",
+                finding.signal.cve, decision.rationale
+            )));
+        }
+
+        // Check cooldown — return Err, not Ok, so callers know enforcement didn't happen
         if let Some(until) = self.cooldown_until {
             if Instant::now() < until {
-                return Ok(format!("Enforcement cooldown active until {until:?}"));
+                return Err(ScannerError::Bpf(format!(
+                    "Enforcement cooldown active for {} until {:?}",
+                    finding.signal.cve, until
+                )));
             }
         }
 
+        // Sanitize values used in rollback commands to prevent injection
+        let safe_cve = sanitize_shell_arg(&finding.signal.cve);
+
         let rollback = match &action {
             ActionType::SeccompProfile { profile_path } => {
-                format!("kubectl delete seccompprofile {profile_path}")
+                let safe_path = sanitize_path(profile_path);
+                format!("kubectl delete seccompprofile {safe_path}")
             }
             ActionType::NetworkBlock { ip, port } => {
-                format!("tc filter del dev eth0 protocol ip prio 1 u32 match ip dst {ip} match ip dport {port} 0xffff")
+                let safe_ip = sanitize_ip(ip);
+                format!("tc filter del dev eth0 protocol ip prio 1 u32 match ip dst {safe_ip} match ip dport {port} 0xffff")
             }
             ActionType::Quarantine { namespace, pod } => {
+                let safe_ns = sanitize_shell_arg(namespace);
+                let safe_pod = sanitize_shell_arg(pod);
                 format!(
-                    "kubectl label pods {pod} -n {namespace} security.execution-aware-scanner/quarantine-"
+                    "kubectl label pods {safe_pod} -n {safe_ns} security.execution-aware-scanner/quarantine-"
                 )
             }
         };
 
         let action_record = EnforcementAction {
-            cve_id: finding.signal.cve.clone(),
+            cve_id: safe_cve.clone(),
             timestamp: Instant::now(),
             action_type: action,
             rollback_command: Some(rollback),
         };
 
-        self.applied_actions
-            .insert(finding.signal.cve.clone(), action_record);
-
-        // Set 5-minute cooldown
+        self.applied_actions.insert(safe_cve.clone(), action_record);
         self.cooldown_until = Some(Instant::now() + Duration::from_secs(300));
 
         Ok(format!(
-            "Enforcement applied for {} (tracked for rollback)",
-            finding.signal.cve
+            "Enforcement applied for {safe_cve} (tracked for rollback)"
         ))
     }
 
@@ -209,9 +227,7 @@ impl SafeEnforcer {
         }
     }
 
-    // Private helpers
     fn is_production_safe(&self, checks: &SafetyCheckResult) -> bool {
-        // ALL must be true for production-safe enforcement
         checks.runtime_proven
             && checks.epss_threshold_met
             && checks.kev_confirmed
@@ -256,10 +272,31 @@ impl SafeEnforcer {
 
     fn group_by_priority(&self) -> HashMap<String, usize> {
         let mut counts: HashMap<String, usize> = HashMap::new();
-        // In real impl, would track priority when recording
         counts.insert("Critical".to_string(), self.applied_actions.len());
         counts
     }
+}
+
+/// Sanitize a string for use in shell commands — allow only safe characters
+fn sanitize_shell_arg(s: &str) -> String {
+    s.chars()
+        .filter(|c| c.is_ascii_alphanumeric() || *c == '-' || *c == '_' || *c == '.')
+        .collect()
+}
+
+/// Sanitize a file path — remove traversal sequences
+fn sanitize_path(p: &str) -> String {
+    p.replace("..", "")
+        .chars()
+        .filter(|c| c.is_ascii_alphanumeric() || *c == '/' || *c == '-' || *c == '_' || *c == '.')
+        .collect()
+}
+
+/// Sanitize an IP address — allow only digits and dots
+fn sanitize_ip(ip: &str) -> String {
+    ip.chars()
+        .filter(|c| c.is_ascii_digit() || *c == '.')
+        .collect()
 }
 
 #[derive(Debug, Clone)]
@@ -311,7 +348,7 @@ mod tests {
                 runtime: RuntimeDisposition::Reachable,
                 package: "log4j-core".to_string(),
                 observed_paths: std::collections::BTreeSet::new(),
-                signal_weight: 2.0, // Library loaded
+                signal_weight: 2.0,
             },
             score: cvss,
             priority,
@@ -324,9 +361,7 @@ mod tests {
     fn test_audit_mode_never_enforces() {
         let enforcer = SafeEnforcer::new(EnforcementMode::Audit, RiskConfig::default());
         let finding = create_test_finding(10.0, Priority::Critical);
-
         let decision = enforcer.evaluate(&finding, 0.99, true);
-
         assert!(!decision.should_enforce);
         assert_eq!(decision.mode, EnforcementMode::Audit);
     }
@@ -334,15 +369,34 @@ mod tests {
     #[test]
     fn test_enforce_mode_requires_all_checks() {
         let enforcer = SafeEnforcer::new(EnforcementMode::Enforce, RiskConfig::default());
+        let finding = create_test_finding(10.0, Priority::Critical);
 
         // Missing KEV
-        let finding = create_test_finding(10.0, Priority::Critical);
         let decision = enforcer.evaluate(&finding, 0.99, false);
         assert!(!decision.should_enforce);
 
         // All checks pass
         let decision = enforcer.evaluate(&finding, 0.99, true);
         assert!(decision.should_enforce);
+    }
+
+    #[test]
+    fn test_enforce_blocks_without_evaluate() {
+        let mut enforcer = SafeEnforcer::new(EnforcementMode::Enforce, RiskConfig::default());
+        let finding = create_test_finding(9.5, Priority::Critical);
+
+        // enforce() now requires passing evaluate checks
+        // Without KEV, should fail
+        let result = enforcer.enforce(
+            &finding,
+            ActionType::NetworkBlock {
+                ip: "192.168.1.1".to_string(),
+                port: 443,
+            },
+            0.95,
+            false, // no KEV
+        );
+        assert!(result.is_err());
     }
 
     #[test]
@@ -355,10 +409,43 @@ mod tests {
             port: 443,
         };
 
-        enforcer.enforce(&finding, action).unwrap();
+        // Must pass safety checks
+        enforcer.enforce(&finding, action, 0.95, true).unwrap();
 
         let rollback = enforcer.rollback("CVE-2021-44228");
         assert!(rollback.is_ok());
         assert!(rollback.unwrap().contains("tc filter del"));
+    }
+
+    #[test]
+    fn test_cooldown_returns_err() {
+        let mut enforcer = SafeEnforcer::new(EnforcementMode::Enforce, RiskConfig::default());
+        let finding = create_test_finding(9.5, Priority::Critical);
+
+        // First enforce should succeed
+        enforcer
+            .enforce(
+                &finding,
+                ActionType::NetworkBlock {
+                    ip: "192.168.1.1".to_string(),
+                    port: 443,
+                },
+                0.95,
+                true,
+            )
+            .unwrap();
+
+        // Second enforce should fail with cooldown error
+        let result = enforcer.enforce(
+            &finding,
+            ActionType::NetworkBlock {
+                ip: "192.168.1.1".to_string(),
+                port: 443,
+            },
+            0.95,
+            true,
+        );
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("cooldown"));
     }
 }

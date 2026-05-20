@@ -5,7 +5,7 @@ use crate::error::ScannerError;
 use scanner_common::CveRecord;
 use serde::{Deserialize, Serialize};
 use std::path::Path;
-use std::process::Command;
+use tokio::process::Command;
 
 /// Vulnerability detection result
 #[derive(Debug, Clone)]
@@ -61,24 +61,40 @@ impl VulnDetector {
     pub async fn scan_image(&self, image: &str) -> Result<Vec<Vulnerability>, ScannerError> {
         tracing::info!("Scanning image for vulnerabilities: {}", image);
 
-        let output = Command::new("trivy")
-            .args([
-                "image",
-                "--format",
-                "json",
-                "--severity",
-                "CRITICAL,HIGH,MEDIUM",
-                "--timeout",
-                &format!("{}s", self.timeout_secs),
-                image,
-            ])
-            .output()
+        // Validate image name — reject flags and shell metacharacters
+        if image.starts_with('-') || image.contains('\0') || image.contains('\n') {
+            return Err(ScannerError::Bpf(format!("Invalid image name: {image}")));
+        }
+
+        let mut cmd = Command::new("trivy");
+        cmd.args([
+            "image",
+            "--format",
+            "json",
+            "--severity",
+            "CRITICAL,HIGH,MEDIUM",
+            "--timeout",
+            &format!("{}s", self.timeout_secs),
+            image,
+        ]);
+
+        let child = cmd
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::piped())
+            .spawn()
             .map_err(|e| ScannerError::Bpf(format!("Failed to run trivy: {e}")))?;
+
+        let output = tokio::time::timeout(
+            std::time::Duration::from_secs(self.timeout_secs + 30),
+            child.wait_with_output(),
+        )
+        .await
+        .map_err(|_| ScannerError::Bpf(format!("Trivy scan timed out for {image}")))?
+        .map_err(|e| ScannerError::Bpf(format!("Failed to run trivy: {e}")))?;
 
         if !output.status.success() {
             let stderr = String::from_utf8_lossy(&output.stderr);
-            tracing::warn!("Trivy scan warning: {}", stderr);
-            // Continue anyway - might have partial results
+            tracing::warn!("Trivy scan warning for {}: {}", image, stderr);
         }
 
         let stdout = String::from_utf8_lossy(&output.stdout);
@@ -89,17 +105,35 @@ impl VulnDetector {
     pub async fn scan_sbom(&self, sbom_path: &Path) -> Result<Vec<Vulnerability>, ScannerError> {
         tracing::info!("Scanning SBOM: {}", sbom_path.display());
 
-        let output = Command::new("trivy")
-            .args([
-                "sbom",
-                "--format",
-                "json",
-                "--severity",
-                "CRITICAL,HIGH,MEDIUM",
-                sbom_path.to_str().unwrap_or("sbom.json"),
-            ])
-            .output()
+        let path_str = sbom_path
+            .to_str()
+            .ok_or_else(|| ScannerError::Bpf("SBOM path is not valid UTF-8".to_string()))?;
+
+        let mut cmd = Command::new("trivy");
+        cmd.args([
+            "sbom",
+            "--format",
+            "json",
+            "--severity",
+            "CRITICAL,HIGH,MEDIUM",
+            "--timeout",
+            &format!("{}s", self.timeout_secs),
+            path_str,
+        ]);
+
+        let child = cmd
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::piped())
+            .spawn()
             .map_err(|e| ScannerError::Bpf(format!("Failed to run trivy sbom: {e}")))?;
+
+        let output = tokio::time::timeout(
+            std::time::Duration::from_secs(self.timeout_secs + 30),
+            child.wait_with_output(),
+        )
+        .await
+        .map_err(|_| ScannerError::Bpf(format!("Trivy SBOM scan timed out for {path_str}")))?
+        .map_err(|e| ScannerError::Bpf(format!("Failed to run trivy sbom: {e}")))?;
 
         if !output.status.success() {
             let stderr = String::from_utf8_lossy(&output.stderr);
@@ -158,7 +192,10 @@ impl VulnDetector {
 
     /// Check if Trivy is installed
     pub fn check_trivy() -> Result<(), ScannerError> {
-        match Command::new("trivy").arg("--version").output() {
+        match std::process::Command::new("trivy")
+            .arg("--version")
+            .output()
+        {
             Ok(_) => Ok(()),
             Err(_) => Err(ScannerError::Bpf(
                 "Trivy not found. Install with: sudo apt install trivy".to_string(),

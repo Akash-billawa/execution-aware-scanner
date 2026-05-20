@@ -707,12 +707,29 @@ async fn run_analysis_pipeline(
             _ = ticker.tick() => {}
         }
 
-        let store = state_store.lock().await;
-        let mut resolver = cgroup_resolver.lock().await;
+        // Snapshot state and resolve cgroup IDs under lock, then release immediately.
+        // This prevents holding the lock across slow I/O (Trivy scans, webhook sends).
+        let snapshot = {
+            let store = state_store.lock().await;
+            store.snapshot()
+        }; // Lock released here
 
-        for (cgroup_id, workload) in store.workloads() {
-            if let Some((container_id, _pid)) = resolver.resolve(*cgroup_id).await {
-                if let Some(identity) = pod_cache.lookup(&container_id).await {
+        // Pre-resolve all cgroup IDs while holding resolver lock briefly
+        let cgroup_map: BTreeMap<u64, (String, u32)> = {
+            let mut resolver = cgroup_resolver.lock().await;
+            let mut map = BTreeMap::new();
+            for &cgroup_id in snapshot.keys() {
+                if let Some(entry) = resolver.resolve(cgroup_id).await {
+                    map.insert(cgroup_id, entry);
+                }
+            }
+            map
+        }; // Resolver lock released here
+
+        // Process workloads WITHOUT holding any locks
+        for (cgroup_id, workload) in &snapshot {
+            if let Some((container_id, _pid)) = cgroup_map.get(cgroup_id) {
+                if let Some(identity) = pod_cache.lookup(container_id).await {
                     let mut workload_findings = scan_image(
                         &identity,
                         workload,
@@ -723,19 +740,19 @@ async fn run_analysis_pipeline(
                         &sbom_store,
                     )
                     .await
-                    .unwrap_or_default();
+                    .unwrap_or_else(|e| {
+                        warn!("Vulnerability scan failed for {}: {}", container_id, e);
+                        Vec::new()
+                    });
 
                     for finding in &workload_findings {
-                        // Output JSON finding for test validation
                         if let Ok(json) = serde_json::to_string(finding) {
                             println!("{json}");
                             info!(finding_json = %json, "finding_generated");
                         }
 
-                        // Send Webhook alert
                         webhook_manager.export_finding(finding).await;
 
-                        // Trigger remediation for critical
                         if matches!(finding.priority, scanner_common::Priority::Critical) {
                             if let Err(e) = remediator.remediate_finding(finding).await {
                                 warn!("Remediation failed: {}", e);
@@ -755,8 +772,7 @@ async fn run_analysis_pipeline(
             }
         }
 
-        // Clear processed state periodically to avoid unbounded state store growth
-        drop(store);
+        // Clear processed state — lock briefly
         state_store.lock().await.clear();
     }
 }
@@ -831,7 +847,18 @@ async fn persist_seccomp(
     profile: &scanner_common::SeccompProfile,
 ) -> Result<(), ScannerError> {
     tokio::fs::create_dir_all(&config.runtime.seccomp_output_dir).await?;
-    let path = format!("{}/{}.json", config.runtime.seccomp_output_dir, workload);
+    // Sanitize workload name to prevent path traversal (e.g., "../../etc/cron.d/evil")
+    let safe_workload: String = workload
+        .chars()
+        .filter(|c| c.is_ascii_alphanumeric() || *c == '-' || *c == '_' || *c == '.')
+        .collect();
+    if safe_workload.is_empty() {
+        return Err(ScannerError::Bpf("Invalid workload name".to_string()));
+    }
+    let path = format!(
+        "{}/{}.json",
+        config.runtime.seccomp_output_dir, safe_workload
+    );
     let payload = serde_json::to_vec_pretty(profile)?;
     tokio::fs::write(path, payload).await?;
     Ok(())

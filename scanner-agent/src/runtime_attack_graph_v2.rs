@@ -641,8 +641,11 @@ impl RuntimeAttackGraph {
             paths.iter().filter(|p| p.confidence >= 0.8).count() as u64;
 
         if !paths.is_empty() {
-            let avg_conf = paths.iter().map(|p| p.confidence).sum::<f32>() / paths.len() as f32;
-            self.metrics.avg_confidence = (self.metrics.avg_confidence + avg_conf) / 2.0;
+            let batch_avg = paths.iter().map(|p| p.confidence).sum::<f32>() / paths.len() as f32;
+            // Use exponential moving average with alpha=0.3 for smoother convergence
+            const ALPHA: f32 = 0.3;
+            self.metrics.avg_confidence =
+                ALPHA * batch_avg + (1.0 - ALPHA) * self.metrics.avg_confidence;
         }
 
         // Return top K
