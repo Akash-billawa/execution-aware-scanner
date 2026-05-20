@@ -127,10 +127,10 @@ impl EventConsumer {
         if data.len() < core::mem::size_of::<FileEvent>() {
             return None;
         }
-        // Validate EventKind discriminant before constructing to avoid UB
+        // Validate EventKind discriminant before constructing to avoid UB.
+        // FileEvent: kind is the last field at offset size_of - 1.
         let kind_offset = core::mem::size_of::<FileEvent>() - 1;
-        let kind_byte = data[kind_offset];
-        if scanner_common::EventKind::try_from_u8(kind_byte).is_none() {
+        if scanner_common::EventKind::try_from_u8(data[kind_offset]).is_none() {
             return None;
         }
         unsafe { Some(std::ptr::read_unaligned(data.as_ptr() as *const FileEvent)) }
@@ -140,10 +140,14 @@ impl EventConsumer {
         if data.len() < core::mem::size_of::<NetEvent>() {
             return None;
         }
-        // Validate EventKind discriminant before constructing to avoid UB
-        let kind_offset = core::mem::size_of::<NetEvent>() - 1;
-        let kind_byte = data[kind_offset];
-        if scanner_common::EventKind::try_from_u8(kind_byte).is_none() {
+        // Validate EventKind discriminant before constructing to avoid UB.
+        // NetEvent: kind is at offset 73 (after protocol:u8 at 72).
+        // NOT at size_of-1, which would be inside data_size:u32 at offset 76.
+        const NET_EVENT_KIND_OFFSET: usize = 73;
+        if data.len() <= NET_EVENT_KIND_OFFSET {
+            return None;
+        }
+        if scanner_common::EventKind::try_from_u8(data[NET_EVENT_KIND_OFFSET]).is_none() {
             return None;
         }
         unsafe { Some(std::ptr::read_unaligned(data.as_ptr() as *const NetEvent)) }

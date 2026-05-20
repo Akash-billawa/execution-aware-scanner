@@ -660,9 +660,13 @@ impl EventConsumer {
         if data.len() < std::mem::size_of::<NetEvent>() {
             return None;
         }
-        // Validate EventKind discriminant before constructing to avoid UB
-        let kind_offset = std::mem::size_of::<NetEvent>() - 1;
-        if scanner_common::EventKind::try_from_u8(data[kind_offset]).is_none() {
+        // Validate EventKind discriminant before constructing to avoid UB.
+        // NetEvent: kind is at offset 73 (after protocol:u8 at 72).
+        // NOT at size_of-1, which would be inside data_size:u32 at offset 76.
+        const NET_EVENT_KIND_OFFSET: usize = 73;
+        if data.len() <= NET_EVENT_KIND_OFFSET
+            || scanner_common::EventKind::try_from_u8(data[NET_EVENT_KIND_OFFSET]).is_none()
+        {
             return None;
         }
         Some(unsafe { std::ptr::read_unaligned(data.as_ptr() as *const NetEvent) })
