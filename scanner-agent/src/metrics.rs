@@ -65,8 +65,18 @@ impl Metrics {
 
     pub fn render(&self) -> String {
         let mut output = String::new();
-        let registry = self.registry.lock().expect("metrics registry poisoned");
-        encode(&mut output, &registry).expect("encode metrics");
+        match self.registry.lock() {
+            Ok(registry) => {
+                if let Err(e) = encode(&mut output, &registry) {
+                    tracing::warn!("Failed to encode metrics: {}", e);
+                }
+            }
+            Err(poisoned) => {
+                // Recover from poisoned lock — the data is still usable
+                let registry = poisoned.into_inner();
+                let _ = encode(&mut output, &registry);
+            }
+        }
         output
     }
 }

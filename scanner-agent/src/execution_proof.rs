@@ -290,21 +290,25 @@ impl ExecutionProofCollector {
     }
 
     fn ip_to_string(&self, ip: u32) -> String {
+        // IP addresses from eBPF are in network byte order (big-endian)
+        let h = u32::from_be(ip);
         format!(
             "{}.{}.{}.{}",
-            (ip >> 24) & 0xFF,
-            (ip >> 16) & 0xFF,
-            (ip >> 8) & 0xFF,
-            ip & 0xFF
+            (h >> 24) & 0xFF,
+            (h >> 16) & 0xFF,
+            (h >> 8) & 0xFF,
+            h & 0xFF
         )
     }
 
     fn is_external_ip(&self, ip: u32) -> bool {
+        // IP addresses from eBPF are in network byte order (big-endian)
+        let h = u32::from_be(ip);
         let octets = [
-            ((ip >> 24) & 0xFF) as u8,
-            ((ip >> 16) & 0xFF) as u8,
-            ((ip >> 8) & 0xFF) as u8,
-            (ip & 0xFF) as u8,
+            ((h >> 24) & 0xFF) as u8,
+            ((h >> 16) & 0xFF) as u8,
+            ((h >> 8) & 0xFF) as u8,
+            (h & 0xFF) as u8,
         ];
 
         // Check if private IP

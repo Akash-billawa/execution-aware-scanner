@@ -374,6 +374,9 @@ async fn main() -> Result<(), ScannerError> {
 
     let webhook_manager = Arc::new(webhook_manager);
 
+    // Shared shutdown channel for graceful pipeline termination
+    let (shutdown_tx, shutdown_rx) = tokio::sync::watch::channel(false);
+
     // Run pipeline based on mode
     let analysis_handle: tokio::task::JoinHandle<Result<Vec<Finding>, ScannerError>> =
         if cli.mode == ExecutionMode::Stream {
@@ -407,6 +410,7 @@ async fn main() -> Result<(), ScannerError> {
                     remediator,
                     vuln_detector,
                     webhook_manager,
+                    shutdown_rx,
                 )
                 .await
             })
@@ -415,15 +419,13 @@ async fn main() -> Result<(), ScannerError> {
     // Wait for completion or signal
     wait_for_shutdown().await;
     info!("Shutdown signal received");
-
-    // Trigger shutdown
     let _ = shutdown_tx.send(true);
+    let _ = analysis_handle.await;
 
     // Cleanup
     if let Some(handle) = event_handle {
         let _ = handle.await;
     }
-    let _ = analysis_handle.await;
     if let Some(handle) = intel_handle {
         handle.abort();
     }
@@ -690,13 +692,20 @@ async fn run_analysis_pipeline(
     remediator: RemediatorService,
     vuln_detector: VulnDetector,
     webhook_manager: Arc<webhook::WebhookManager>,
+    mut shutdown_rx: tokio::sync::watch::Receiver<bool>,
 ) -> Result<Vec<Finding>, ScannerError> {
     let mut findings = Vec::new();
     let mut ticker = interval(Duration::from_secs(30));
     let mut attack_graph = runtime_attack_graph_v2::RuntimeAttackGraph::with_defaults();
 
     loop {
-        ticker.tick().await;
+        tokio::select! {
+            _ = shutdown_rx.changed() => {
+                info!("Analysis pipeline received shutdown signal");
+                break Ok(vec![]);
+            }
+            _ = ticker.tick() => {}
+        }
 
         let store = state_store.lock().await;
         let mut resolver = cgroup_resolver.lock().await;

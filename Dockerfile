@@ -1,7 +1,7 @@
 # Multi-stage build for execution-aware-scanner
 # Production build with eBPF support (REQUIRED)
 
-FROM rust:1.90-bookworm AS builder
+FROM rust:1.88-bookworm AS builder
 
 WORKDIR /src
 COPY . .

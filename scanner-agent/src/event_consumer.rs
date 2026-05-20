@@ -579,12 +579,14 @@ impl EventConsumer {
         cgroup_resolver: &Arc<Mutex<CgroupResolver>>,
     ) -> Result<(), ScannerError> {
         for event in &self.net_batch {
+            // IP addresses from eBPF are in network byte order (big-endian)
+            let daddr_h = u32::from_be(event.daddr);
             let daddr_str = format!(
                 "{}.{}.{}.{}",
-                (event.daddr >> 24) & 0xFF,
-                (event.daddr >> 16) & 0xFF,
-                (event.daddr >> 8) & 0xFF,
-                event.daddr & 0xFF
+                (daddr_h >> 24) & 0xFF,
+                (daddr_h >> 16) & 0xFF,
+                (daddr_h >> 8) & 0xFF,
+                daddr_h & 0xFF
             );
 
             // Check for suspicious destinations
@@ -646,6 +648,11 @@ impl EventConsumer {
         if data.len() < std::mem::size_of::<FileEvent>() {
             return None;
         }
+        // Validate EventKind discriminant before constructing to avoid UB
+        let kind_offset = std::mem::size_of::<FileEvent>() - 1;
+        if scanner_common::EventKind::try_from_u8(data[kind_offset]).is_none() {
+            return None;
+        }
         Some(unsafe { std::ptr::read_unaligned(data.as_ptr() as *const FileEvent) })
     }
 
@@ -653,11 +660,20 @@ impl EventConsumer {
         if data.len() < std::mem::size_of::<NetEvent>() {
             return None;
         }
+        // Validate EventKind discriminant before constructing to avoid UB
+        let kind_offset = std::mem::size_of::<NetEvent>() - 1;
+        if scanner_common::EventKind::try_from_u8(data[kind_offset]).is_none() {
+            return None;
+        }
         Some(unsafe { std::ptr::read_unaligned(data.as_ptr() as *const NetEvent) })
     }
 
     fn parse_security_event(data: &[u8]) -> Option<SecurityEvent> {
         if data.len() < std::mem::size_of::<SecurityEvent>() {
+            return None;
+        }
+        // Validate SecurityEventKind discriminant (at offset 8, after ts: u64) before constructing to avoid UB
+        if data.len() > 8 && SecurityEventKind::try_from_u8(data[8]).is_none() {
             return None;
         }
         Some(unsafe { std::ptr::read_unaligned(data.as_ptr() as *const SecurityEvent) })
@@ -786,8 +802,8 @@ impl EventConsumer {
     }
 
     fn should_filter_net(event: &NetEvent) -> bool {
-        // Filter localhost
-        if event.daddr == 0x7F000001 || event.daddr == 0x0100007F {
+        // Filter entire 127.0.0.0/8 loopback range (both byte orders)
+        if (event.daddr & 0xFF) == 0x7F || (event.daddr >> 24 & 0xFF) == 0x7F {
             return true;
         }
 
@@ -911,6 +927,15 @@ enum SecurityEventKind {
     Dns = 5,
     Exit = 6,
     Suspicious = 7,
+}
+
+impl SecurityEventKind {
+    fn try_from_u8(val: u8) -> Option<Self> {
+        match val {
+            0..=7 => Some(unsafe { core::mem::transmute(val) }),
+            _ => None,
+        }
+    }
 }
 
 #[repr(C)]

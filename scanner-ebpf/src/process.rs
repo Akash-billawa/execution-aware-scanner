@@ -75,9 +75,12 @@ pub unsafe fn get_parent_pid(pid: u32) -> Option<u32> {
 }
 
 /// Get process ancestry (up to 3 levels)
+/// Tracks visited PIDs to detect arbitrary cycles (e.g., A->B->A from PID recycling)
 pub unsafe fn get_process_ancestry(pid: u32, ancestors: &mut [u32; 3]) -> u32 {
     let mut current = pid;
     let mut count = 0u32;
+    let mut seen = [0u32; 4]; // track origin + up to 3 ancestors for cycle detection
+    seen[0] = pid;
 
     for i in 0..3 {
         let key_ptr = &current;
@@ -87,10 +90,16 @@ pub unsafe fn get_process_ancestry(pid: u32, ancestors: &mut [u32; 3]) -> u32 {
             count += 1;
             current = ppid;
 
-            // Stop at init (PID 1) or if we hit a loop
-            if ppid == 1 || ppid == pid {
+            // Stop at init or if we've already visited this PID (cycle)
+            if ppid == 1 {
                 break;
             }
+            for j in 0..=i {
+                if seen[j] == ppid {
+                    return count;
+                }
+            }
+            seen[i + 1] = ppid;
         } else {
             break;
         }

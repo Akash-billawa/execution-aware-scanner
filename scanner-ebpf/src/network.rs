@@ -52,17 +52,17 @@ pub const CONN_STATE_NEW: u8 = 0;
 pub const CONN_STATE_ESTABLISHED: u8 = 1;
 pub const CONN_STATE_CLOSING: u8 = 2;
 
-/// Generate connection key using XOR-shift for better distribution
+/// Generate connection key from the 4-tuple using FNV-1a-style mixing.
+/// Produces well-distributed 64-bit keys with no commutativity issues.
 /// SAFETY: This is a pure function, no side effects
 #[inline(always)]
 pub fn conn_key(saddr: u32, sport: u16, daddr: u32, dport: u16) -> u64 {
-    // Use a hash that preserves some structure while avoiding collisions
-    let saddr64 = (saddr as u64) << 32;
-    let daddr64 = (daddr as u64) << 32;
-    let sport64 = (sport as u64) << 16;
-    let dport64 = dport as u64;
-
-    saddr64 ^ sport64 ^ daddr64 ^ dport64
+    let mut h: u64 = 0xcbf29ce484222325; // FNV offset basis
+    h ^= saddr as u64; h = h.wrapping_mul(0x100000001b3); // FNV prime
+    h ^= sport as u64; h = h.wrapping_mul(0x100000001b3);
+    h ^= daddr as u64; h = h.wrapping_mul(0x100000001b3);
+    h ^= dport as u64; h = h.wrapping_mul(0x100000001b3);
+    h
 }
 
 /// Track TCP connection establishment

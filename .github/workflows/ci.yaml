@@ -73,7 +73,7 @@ jobs:
           cargo build --release -p scanner-agent --features ebpf
           
           # Run for a short duration to verify eBPF programs load
-          sudo timeout 20 ./target/release/scanner-agent --features ebpf || true
+          sudo timeout 20 ./target/release/scanner-agent || true
           
           # Verify eBPF programs were loaded
           echo "Checking for loaded eBPF programs..."

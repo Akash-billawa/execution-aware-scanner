@@ -38,8 +38,6 @@ tower = "0.5"
 tracing.workspace = true
 tracing-subscriber.workspace = true
 uuid.workspace = true
-aya = { workspace = true, optional = true }
-aya-log = { workspace = true, optional = true }
 
 [dev-dependencies]
 tokio-test = "0.4"

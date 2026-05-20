@@ -302,7 +302,7 @@ impl RuntimeAttackGraph {
         }
 
         // Sort by risk score
-        paths.sort_by(|a, b| b.risk_score.partial_cmp(&a.risk_score).unwrap());
+        paths.sort_by(|a, b| b.risk_score.total_cmp(&a.risk_score));
         paths
     }
 

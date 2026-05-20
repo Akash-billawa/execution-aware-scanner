@@ -127,11 +127,23 @@ impl EventConsumer {
         if data.len() < core::mem::size_of::<FileEvent>() {
             return None;
         }
+        // Validate EventKind discriminant before constructing to avoid UB
+        let kind_offset = core::mem::size_of::<FileEvent>() - 1;
+        let kind_byte = data[kind_offset];
+        if scanner_common::EventKind::try_from_u8(kind_byte).is_none() {
+            return None;
+        }
         unsafe { Some(std::ptr::read_unaligned(data.as_ptr() as *const FileEvent)) }
     }
 
     fn try_parse_net(&self, data: &[u8]) -> Option<NetEvent> {
         if data.len() < core::mem::size_of::<NetEvent>() {
+            return None;
+        }
+        // Validate EventKind discriminant before constructing to avoid UB
+        let kind_offset = core::mem::size_of::<NetEvent>() - 1;
+        let kind_byte = data[kind_offset];
+        if scanner_common::EventKind::try_from_u8(kind_byte).is_none() {
             return None;
         }
         unsafe { Some(std::ptr::read_unaligned(data.as_ptr() as *const NetEvent)) }

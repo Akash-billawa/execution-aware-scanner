@@ -123,7 +123,7 @@ impl RuntimeMapper {
                 }
             } else {
                 // Use cached vulnerabilities
-                self.lib_vulns.get(&path).unwrap().clone()
+                self.lib_vulns.get(&path).cloned().unwrap_or_default()
             };
 
             // Re-borrow mutably to update vulnerabilities
@@ -139,13 +139,15 @@ impl RuntimeMapper {
     pub fn handle_network(&mut self, event: &NetEvent) {
         // Only track external connections
         if event.dport == 443 || event.dport == 80 {
+            // IP addresses from eBPF are in network byte order (big-endian)
+            let daddr_h = u32::from_be(event.daddr);
             let conn = NetworkConn {
                 dest_ip: format!(
                     "{}.{}.{}.{}",
-                    (event.daddr >> 24) & 0xFF,
-                    (event.daddr >> 16) & 0xFF,
-                    (event.daddr >> 8) & 0xFF,
-                    event.daddr & 0xFF
+                    (daddr_h >> 24) & 0xFF,
+                    (daddr_h >> 16) & 0xFF,
+                    (daddr_h >> 8) & 0xFF,
+                    daddr_h & 0xFF
                 ),
                 dest_port: event.dport,
                 protocol: if event.protocol == 6 {

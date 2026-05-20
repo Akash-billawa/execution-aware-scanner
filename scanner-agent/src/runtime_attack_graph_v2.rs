@@ -81,7 +81,7 @@ pub enum RuntimeNode {
 impl RuntimeNode {
     pub fn node_id(&self) -> String {
         match self {
-            RuntimeNode::Process { pid, name, .. } => format!("proc:{pid}:{name}"),
+            RuntimeNode::Process { pid, .. } => format!("proc:{pid}"),
             RuntimeNode::Library { path, .. } => format!("lib:{path}"),
             RuntimeNode::Network { ip, port, .. } => format!("net:{ip}:{port}"),
             RuntimeNode::Vulnerability(v) => format!("vuln:{}", v.cve_id),
@@ -357,12 +357,14 @@ impl RuntimeAttackGraph {
         cgroup_id: u64,
         event: &NetEvent,
     ) {
+        // IP addresses from eBPF are in network byte order (big-endian)
+        let daddr_h = u32::from_be(event.daddr);
         let daddr = format!(
             "{}.{}.{}.{}",
-            (event.daddr >> 24) & 0xFF,
-            (event.daddr >> 16) & 0xFF,
-            (event.daddr >> 8) & 0xFF,
-            event.daddr & 0xFF
+            (daddr_h >> 24) & 0xFF,
+            (daddr_h >> 16) & 0xFF,
+            (daddr_h >> 8) & 0xFF,
+            daddr_h & 0xFF
         );
 
         // Check for deduplication (within short window)
@@ -441,17 +443,19 @@ impl RuntimeAttackGraph {
     fn aggregate_network_event(&mut self, pid: u32, event: &NetEvent) {
         let process_idx = self
             .node_indices
-            .get(&format!("proc:{}:{}", pid, "unknown"));
+            .get(&format!("proc:{}", pid));
         if process_idx.is_none() {
             return;
         }
 
+        // IP addresses from eBPF are in network byte order (big-endian)
+        let daddr_h = u32::from_be(event.daddr);
         let daddr = format!(
             "{}.{}.{}.{}",
-            (event.daddr >> 24) & 0xFF,
-            (event.daddr >> 16) & 0xFF,
-            (event.daddr >> 8) & 0xFF,
-            event.daddr & 0xFF
+            (daddr_h >> 24) & 0xFF,
+            (daddr_h >> 16) & 0xFF,
+            (daddr_h >> 8) & 0xFF,
+            daddr_h & 0xFF
         );
         let net_idx = self
             .node_indices
@@ -625,7 +629,7 @@ impl RuntimeAttackGraph {
         paths.sort_by(|a, b| {
             let score_a = a.confidence * a.risk_score;
             let score_b = b.confidence * b.risk_score;
-            score_b.partial_cmp(&score_a).unwrap()
+            score_b.total_cmp(&score_a)
         });
 
         // Assign ranks
@@ -789,17 +793,13 @@ impl RuntimeAttackGraph {
     }
 
     /// Get paths that meet enforcement criteria
-    pub fn get_enforceable_paths(&self, findings: &[Finding]) -> Vec<&AttackPath> {
-        let _paths: Vec<_> = findings
+    pub fn get_enforceable_paths(&self, findings: &[Finding]) -> Vec<AttackPath> {
+        findings
             .iter()
             .filter(|f| f.signal.runtime == RuntimeDisposition::Reachable)
             .map(|f| self.build_path_for_finding(f))
             .filter(|p| p.meets_enforcement_criteria(&self.config))
-            .collect();
-
-        // Can't return references to local variables
-        // This would need to store paths in self
-        Vec::new()
+            .collect()
     }
 
     /// Export to dot format

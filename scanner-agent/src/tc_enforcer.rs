@@ -1,4 +1,12 @@
+use crate::error::ScannerError;
+use aya::maps::HashMap as BpfHashMap;
+use aya::Ebpf;
+use std::collections::HashSet;
+use std::net::Ipv4Addr;
+use std::time::{Duration, Instant};
+use tracing::{debug, error, info, warn};
 
+impl TcEnforcer {
     pub async fn block_ip(
         &mut self,
         ip: Ipv4Addr,
@@ -114,7 +122,7 @@
                     results.push(EnforcementResult {
                         rule: TrafficRule::BlockPort {
                             port: *port,
-                            direction: Direction::Egress,
+                            reason: "C2 indicator port".to_string(),
                         },
                         applied: true,
                         error: None,
@@ -145,18 +153,37 @@
                 .map_err(|e| ScannerError::Bpf(format!("Failed to quarantine: {}", e)))?;
         }
 
+        self.quarantined_cgroups.insert(cgroup_id);
         info!("Quarantined cgroup {} for {:?}", cgroup_id, duration);
 
-        // Schedule unquarantine
-        let cgroup_id_for_unquarantine = cgroup_id;
-        let weak_bpf = self.bpf.as_ref().map(|_| ()); // Can't easily clone, but we show the pattern
+        // Schedule unquarantine via a background task that removes the denylist entry.
+        // We pass the BPF map path so the spawned task can load its own handle.
+        let denylist_map_name = "DENYLIST".to_string();
+        let bpf_path = self.bpf_path.clone();
         tokio::spawn(async move {
             tokio::time::sleep(duration).await;
-            info!(
-                "Auto-unquarantine cgroup {} after {:?}",
-                cgroup_id_for_unquarantine, duration
-            );
-            // In real implementation, would need access to BPF handle
+            // Attempt to remove the cgroup from the BPF denylist
+            if let Some(ref path) = bpf_path {
+                match aya::Ebpf::load_file(path) {
+                    Ok(mut bpf) => {
+                        if let Some(map) = bpf.map_mut(&denylist_map_name) {
+                            match aya::maps::HashMap::<_, u64, u8>::try_from(map) {
+                                Ok(mut denylist) => {
+                                    let _ = denylist.remove(&cgroup_id);
+                                    info!("Auto-unquarantine cgroup {} — removed from denylist", cgroup_id);
+                                }
+                                Err(e) => {
+                                    tracing::warn!("Auto-unquarantine: failed to access denylist map: {}", e);
+                                }
+                            }
+                        }
+                    }
+                    Err(e) => {
+                        tracing::warn!("Auto-unquarantine: failed to load BPF for cgroup {}: {}", cgroup_id, e);
+                    }
+                }
+            }
+            info!("Auto-unquarantine cgroup {} after {:?}", cgroup_id, duration);
         });
 
         Ok(())
@@ -313,7 +340,9 @@ impl ThreatIntelFeed {
 
     /// Check if domain is known bad
     pub fn is_known_bad_domain(&self, domain: &str) -> bool {
-        self.known_bad_domains.iter().any(|d| domain.contains(d))
+        self.known_bad_domains.iter().any(|d| {
+            domain == d.as_str() || domain.ends_with(&format!(".{}", d))
+        })
     }
 
     /// Get indicators as C2Indicator list

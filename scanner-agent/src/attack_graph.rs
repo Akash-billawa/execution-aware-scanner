@@ -221,25 +221,23 @@ impl AttackGraph {
 impl AttackPathAnalyzer {
     pub fn new(graph: AttackGraph) -> Self {
         let entry_points = graph
-            .nodes()
-            .enumerate()
-            .filter(|(_, n)| matches!(n, AttackNode::External { .. }))
-            .map(|(i, _)| NodeIndex::new(i))
+            .graph
+            .node_indices()
+            .filter(|&idx| matches!(graph.graph.node_weight(idx), Some(AttackNode::External { .. })))
             .collect();
 
         let critical_assets = graph
-            .nodes()
-            .enumerate()
-            .filter(|(_, n)| {
+            .graph
+            .node_indices()
+            .filter(|&idx| {
                 matches!(
-                    n,
-                    AttackNode::Asset {
+                    graph.graph.node_weight(idx),
+                    Some(AttackNode::Asset {
                         asset_type: AssetType::Database,
                         ..
-                    }
+                    })
                 )
             })
-            .map(|(i, _)| NodeIndex::new(i))
             .collect();
 
         Self {
@@ -263,7 +261,7 @@ impl AttackPathAnalyzer {
         }
 
         // Sort by total CVSS
-        chains.sort_by(|a, b| b.total_cvss.partial_cmp(&a.total_cvss).unwrap());
+        chains.sort_by(|a, b| b.total_cvss.total_cmp(&a.total_cvss));
         chains
     }
 

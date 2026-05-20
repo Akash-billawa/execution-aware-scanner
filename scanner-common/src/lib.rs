@@ -27,6 +27,17 @@ pub enum EventKind {
     SslRead = 17,  // TLS/SSL read operations
 }
 
+impl EventKind {
+    /// Validate a raw u8 discriminant, returning None if it's not a valid variant.
+    /// Prevents undefined behavior when constructing enums from raw bytes.
+    pub fn try_from_u8(val: u8) -> Option<Self> {
+        match val {
+            1..=17 => Some(unsafe { core::mem::transmute(val) }),
+            _ => None,
+        }
+    }
+}
+
 #[repr(C)]
 #[derive(Debug, Clone, Copy)]
 pub struct ExecEvent {
