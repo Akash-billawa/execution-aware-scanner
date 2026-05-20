@@ -6,6 +6,59 @@ use std::net::Ipv4Addr;
 use std::time::{Duration, Instant};
 use tracing::{debug, error, info, warn};
 
+/// Enforcement result for a traffic rule
+#[derive(Debug, Clone)]
+pub struct EnforcementResult {
+    pub rule: TrafficRule,
+    pub applied: bool,
+    pub error: Option<String>,
+}
+
+/// Traffic rules
+#[derive(Debug, Clone)]
+pub enum TrafficRule {
+    BlockIp { ip: Ipv4Addr, reason: String },
+    BlockPort { port: u16, reason: String },
+    BlockDomain { domain: String, reason: String },
+}
+
+/// TC/XDP-based traffic enforcement
+pub struct TcEnforcer {
+    bpf: Option<Ebpf>,
+    bpf_path: Option<String>,
+    blocked_ips: HashSet<u32>,
+    blocked_ports: HashSet<u16>,
+    blocked_domains: HashSet<String>,
+    quarantined_cgroups: HashSet<u64>,
+    last_update: Instant,
+}
+
+impl TcEnforcer {
+    pub fn new() -> Self {
+        Self {
+            bpf: None,
+            bpf_path: None,
+            blocked_ips: HashSet::new(),
+            blocked_ports: HashSet::new(),
+            blocked_domains: HashSet::new(),
+            quarantined_cgroups: HashSet::new(),
+            last_update: Instant::now(),
+        }
+    }
+
+    pub fn with_bpf(bpf: Ebpf, path: String) -> Self {
+        Self {
+            bpf: Some(bpf),
+            bpf_path: Some(path),
+            blocked_ips: HashSet::new(),
+            blocked_ports: HashSet::new(),
+            blocked_domains: HashSet::new(),
+            quarantined_cgroups: HashSet::new(),
+            last_update: Instant::now(),
+        }
+    }
+}
+
 impl TcEnforcer {
     pub async fn block_ip(
         &mut self,
