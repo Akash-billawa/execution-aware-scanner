@@ -57,6 +57,10 @@ RUN cargo +nightly build \
 RUN ls -la /src/target/bpfel-unknown-none/release/ && \
     test -f /src/target/bpfel-unknown-none/release/libscanner_ebpf.so
 
+# Copy eBPF object to staging location before ARM64 build removes it
+RUN mkdir -p /opt/scanner && \
+    cp /src/target/bpfel-unknown-none/release/libscanner_ebpf.so /opt/scanner/scanner-ebpf.so
+
 # Build the agent
 # ARM64: build without ebpf feature (eBPF programs are loaded at runtime from the separate .so)
 # amd64: build with ebpf feature (native linking)
@@ -85,8 +89,8 @@ RUN apt-get update \
 # Copy agent binary
 COPY --from=builder /src/scanner-agent-binary /usr/local/bin/scanner-agent
 
-# Copy eBPF object (REQUIRED)
-COPY --from=builder /src/target/bpfel-unknown-none/release/libscanner_ebpf.so /opt/scanner/scanner-ebpf.so
+# Copy eBPF object (staged before ARM64 build)
+COPY --from=builder /opt/scanner/scanner-ebpf.so /opt/scanner/scanner-ebpf.so
 
 # Copy SBOMs and data
 COPY examples/sboms /var/lib/scanner/sboms
