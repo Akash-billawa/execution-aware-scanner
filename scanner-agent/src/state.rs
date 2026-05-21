@@ -219,3 +219,129 @@ fn is_suspicious_command(cmd: &str) -> bool {
     let suspicious = ["nc", "ncat", "bash -i", "python", "perl", "ruby"];
     suspicious.iter().any(|s| cmd.contains(s))
 }
+
+// ── Finding Store (for REST API) ────────────────────────────────────────────
+
+use chrono::{DateTime, Utc};
+use scanner_common::Finding;
+
+/// Maximum findings to keep in the ring buffer
+const MAX_FINDINGS: usize = 10000;
+
+/// Summary view of a finding for API responses
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct FindingSummary {
+    pub id: String,
+    pub detected_at: DateTime<Utc>,
+    pub cve: String,
+    pub cvss: f32,
+    pub epss: f32,
+    pub kev: bool,
+    pub priority: String,
+    pub namespace: String,
+    pub workload: String,
+    pub pod_name: String,
+    pub score: f32,
+    pub recommendation: String,
+    pub acknowledged: bool,
+    pub acknowledged_at: Option<DateTime<Utc>>,
+    pub acknowledged_by: Option<String>,
+}
+
+impl From<&Finding> for FindingSummary {
+    fn from(f: &Finding) -> Self {
+        Self {
+            id: f.id.clone(),
+            detected_at: f.detected_at,
+            cve: f.signal.cve.clone(),
+            cvss: f.signal.cvss,
+            epss: f.signal.epss,
+            kev: f.signal.kev,
+            priority: format!("{:?}", f.priority),
+            namespace: f.identity.namespace.clone(),
+            workload: f.identity.workload.clone(),
+            pod_name: f.identity.pod_name.clone(),
+            score: f.score,
+            recommendation: f.recommendation.clone(),
+            acknowledged: false,
+            acknowledged_at: None,
+            acknowledged_by: None,
+        }
+    }
+}
+
+/// Finding stats for API responses
+#[derive(Debug, Clone, Default, serde::Serialize)]
+pub struct FindingStats {
+    pub total: usize,
+    pub critical: usize,
+    pub high: usize,
+    pub medium: usize,
+    pub low: usize,
+    pub informational: usize,
+    pub acknowledged: usize,
+}
+
+/// In-memory finding store with ring buffer semantics
+#[derive(Default)]
+pub struct FindingStore {
+    findings: Vec<FindingSummary>,
+}
+
+impl FindingStore {
+    pub fn new() -> Self {
+        Self {
+            findings: Vec::with_capacity(MAX_FINDINGS.min(1000)),
+        }
+    }
+
+    /// Insert a finding, evicting oldest if at capacity
+    pub fn insert(&mut self, finding: &Finding) {
+        if self.findings.len() >= MAX_FINDINGS {
+            self.findings.remove(0);
+        }
+        self.findings.push(FindingSummary::from(finding));
+    }
+
+    /// Get all findings
+    pub fn get_all(&self) -> &[FindingSummary] {
+        &self.findings
+    }
+
+    /// Get a finding by ID
+    pub fn get(&self, id: &str) -> Option<&FindingSummary> {
+        self.findings.iter().find(|f| f.id == id)
+    }
+
+    /// Acknowledge a finding
+    pub fn acknowledge(&mut self, id: &str, reason: Option<String>) -> Result<(), String> {
+        let finding = self
+            .findings
+            .iter_mut()
+            .find(|f| f.id == id)
+            .ok_or_else(|| format!("Finding {id} not found"))?;
+        finding.acknowledged = true;
+        finding.acknowledged_at = Some(Utc::now());
+        finding.acknowledged_by = reason;
+        Ok(())
+    }
+
+    /// Get stats
+    pub fn stats(&self) -> FindingStats {
+        let mut stats = FindingStats::default();
+        stats.total = self.findings.len();
+        for f in &self.findings {
+            match f.priority.as_str() {
+                "Critical" => stats.critical += 1,
+                "High" => stats.high += 1,
+                "Medium" => stats.medium += 1,
+                "Low" => stats.low += 1,
+                _ => stats.informational += 1,
+            }
+            if f.acknowledged {
+                stats.acknowledged += 1;
+            }
+        }
+        stats
+    }
+}

@@ -1,0 +1,20 @@
+apiVersion: chaos-mesh.org/v1alpha1
+kind: StressChaos
+metadata:
+  name: scanner-cpu-stress
+  namespace: scanner-system
+spec:
+  mode: one
+  selector:
+    namespaces:
+      - scanner-system
+    labelSelectors:
+      app.kubernetes.io/name: execution-aware-scanner
+      app.kubernetes.io/component: scanner
+  stressors:
+    cpu:
+      workers: 2
+      load: 80
+  duration: '120s'
+  scheduler:
+    cron: '@every 15m'

@@ -1,0 +1,16 @@
+apiVersion: chaos-mesh.org/v1alpha1
+kind: PodChaos
+metadata:
+  name: scanner-pod-kill
+  namespace: scanner-system
+spec:
+  action: pod-kill
+  mode: one
+  selector:
+    namespaces:
+      - scanner-system
+    labelSelectors:
+      app.kubernetes.io/name: execution-aware-scanner
+      app.kubernetes.io/component: scanner
+  scheduler:
+    cron: '@every 5m'

@@ -1,0 +1,90 @@
+{{- if .Values.operator.enabled }}
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  name: scanresults.scanner.example.com
+  annotations:
+    controller-gen.kubebuilder.io/version: v0.14.0
+  labels:
+    {{- include "execution-aware-scanner.labels" . | nindent 4 }}
+spec:
+  group: scanner.example.com
+  names:
+    kind: ScanResult
+    listKind: ScanResultList
+    plural: scanresults
+    singular: scanresult
+    shortNames:
+      - sr
+  scope: Namespaced
+  versions:
+    - name: v1
+      served: true
+      storage: true
+      schema:
+        openAPIV3Schema:
+          type: object
+          description: ScanResult represents a completed scan result
+          properties:
+            apiVersion:
+              type: string
+            kind:
+              type: string
+            metadata:
+              type: object
+            spec:
+              type: object
+              description: ScanResultSpec defines the scan result details
+              properties:
+                scanPolicyRef:
+                  type: object
+                  properties:
+                    name:
+                      type: string
+                    namespace:
+                      type: string
+                scanTime:
+                  type: string
+                  format: date-time
+                node:
+                  type: string
+                findings:
+                  type: array
+                  items:
+                    type: object
+                    properties:
+                      id:
+                        type: string
+                      cve:
+                        type: string
+                      severity:
+                        type: string
+                        enum: [Low, Medium, High, Critical]
+                      cvss:
+                        type: number
+                      epss:
+                        type: number
+                      kev:
+                        type: boolean
+                      workload:
+                        type: string
+                      namespace:
+                        type: string
+                      recommendation:
+                        type: string
+                summary:
+                  type: object
+                  properties:
+                    totalFindings:
+                      type: integer
+                    criticalCount:
+                      type: integer
+                    highCount:
+                      type: integer
+                    mediumCount:
+                      type: integer
+                    lowCount:
+                      type: integer
+                    scanDurationMs:
+                      type: integer
+{{- end }}

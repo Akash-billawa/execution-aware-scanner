@@ -18,6 +18,7 @@ mod libraries;
 mod network;
 mod process;
 mod tracepoints;
+mod usdt;
 
 // Re-export for use by probe handlers
 pub use events::*;
@@ -26,6 +27,7 @@ pub use libraries::*;
 pub use network::*;
 pub use process::*;
 pub use tracepoints::*;
+pub use usdt::*;
 
 #[panic_handler]
 fn panic(_info: &core::panic::PanicInfo) -> ! {

@@ -1,0 +1,21 @@
+apiVersion: chaos-mesh.org/v1alpha1
+kind: IOChaos
+metadata:
+  name: scanner-io-latency
+  namespace: scanner-system
+spec:
+  action: latency
+  mode: one
+  selector:
+    namespaces:
+      - scanner-system
+    labelSelectors:
+      app.kubernetes.io/name: execution-aware-scanner
+      app.kubernetes.io/component: scanner
+  volumePath: /host/proc
+  path: '/proc/**'
+  delay: '100ms'
+  percent: 50
+  duration: '60s'
+  scheduler:
+    cron: '@every 10m'

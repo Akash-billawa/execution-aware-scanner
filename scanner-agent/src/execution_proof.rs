@@ -136,6 +136,7 @@ impl ExecutionProofCollector {
                     EventKind::SslWrite => "ssl_write",
                     EventKind::SslRead => "ssl_read",
                     EventKind::SecurityAllow => "security_allow",
+                    EventKind::FunctionTrace => "function_trace",
                 };
 
                 let confidence = if event.kind == EventKind::Mmap || event.kind == EventKind::Exec {

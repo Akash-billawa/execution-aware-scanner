@@ -22,9 +22,10 @@ pub enum EventKind {
     Mprotect = 12, // Memory protection changes
     SecurityDeny = 13,
     SecurityAllow = 14,
-    DnsQuery = 15, // DNS lookups
-    SslWrite = 16, // TLS/SSL write operations
-    SslRead = 17,  // TLS/SSL read operations
+    DnsQuery = 15,      // DNS lookups
+    SslWrite = 16,      // TLS/SSL write operations
+    SslRead = 17,       // TLS/SSL read operations
+    FunctionTrace = 18, // USDT function-level tracing
 }
 
 impl EventKind {
@@ -32,7 +33,7 @@ impl EventKind {
     /// Prevents undefined behavior when constructing enums from raw bytes.
     pub fn try_from_u8(val: u8) -> Option<Self> {
         match val {
-            1..=17 => Some(unsafe { core::mem::transmute::<u8, EventKind>(val) }),
+            1..=18 => Some(unsafe { core::mem::transmute::<u8, EventKind>(val) }),
             _ => None,
         }
     }
@@ -79,6 +80,37 @@ pub struct NetEvent {
     pub protocol: u8,
     pub kind: EventKind,
     pub data_size: u32, // NEW: Size of data transferred
+}
+
+/// USDT function-level trace event
+#[repr(C)]
+#[derive(Debug, Clone, Copy)]
+pub struct FunctionTraceEvent {
+    pub timestamp_ns: u64,
+    pub pid: u32,
+    pub tgid: u32,
+    pub cgroup_id: u64,
+    pub function_name: [u8; 64],
+    pub binary_path: [u8; PATH_LEN],
+    pub arg0: u64,
+    pub arg1: u64,
+    pub return_value: u64,
+}
+
+impl Default for FunctionTraceEvent {
+    fn default() -> Self {
+        Self {
+            timestamp_ns: 0,
+            pid: 0,
+            tgid: 0,
+            cgroup_id: 0,
+            function_name: [0; 64],
+            binary_path: [0; PATH_LEN],
+            arg0: 0,
+            arg1: 0,
+            return_value: 0,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]

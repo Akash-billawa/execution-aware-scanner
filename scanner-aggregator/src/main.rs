@@ -65,6 +65,33 @@ pub enum PatternType {
     DataExfiltration,
 }
 
+/// Federation peer information
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct FederationPeer {
+    pub peer_id: String,
+    pub endpoint: String,
+    pub api_key: Option<String>,
+    pub last_sync: Option<i64>,
+    pub status: PeerStatus,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub enum PeerStatus {
+    Active,
+    Inactive,
+    Syncing,
+    Error,
+}
+
+/// Federation sync payload
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct FederationSync {
+    pub source_peer: String,
+    pub paths: Vec<ClusterPath>,
+    pub correlations: Vec<GlobalCorrelation>,
+    pub timestamp: i64,
+}
+
 /// Aggregator state
 pub struct AggregatorState {
     /// All paths from all clusters
@@ -73,6 +100,8 @@ pub struct AggregatorState {
     correlations: RwLock<Vec<GlobalCorrelation>>,
     /// Cluster health
     cluster_heartbeat: RwLock<HashMap<String, i64>>,
+    /// Federation peers
+    federation_peers: RwLock<HashMap<String, FederationPeer>>,
 }
 
 impl AggregatorState {
@@ -81,6 +110,64 @@ impl AggregatorState {
             paths: RwLock::new(HashMap::new()),
             correlations: RwLock::new(Vec::new()),
             cluster_heartbeat: RwLock::new(HashMap::new()),
+            federation_peers: RwLock::new(HashMap::new()),
+        }
+    }
+
+    /// Register a federation peer
+    pub async fn register_peer(&self, peer: FederationPeer) {
+        let mut peers = self.federation_peers.write().await;
+        peers.insert(peer.peer_id.clone(), peer);
+    }
+
+    /// Get all federation peers
+    pub async fn get_peers(&self) -> Vec<FederationPeer> {
+        let peers = self.federation_peers.read().await;
+        peers.values().cloned().collect()
+    }
+
+    /// Receive federation sync from a peer
+    pub async fn receive_federation_sync(&self, sync: FederationSync) {
+        info!(
+            peer = %sync.source_peer,
+            paths = sync.paths.len(),
+            correlations = sync.correlations.len(),
+            "Received federation sync"
+        );
+
+        // Merge paths from peer
+        let mut paths = self.paths.write().await;
+        for path in sync.paths {
+            let key = format!("{}:{}", path.cluster_id, path.path_id);
+            paths.insert(key, path);
+        }
+
+        // Merge correlations (dedup by correlation_id)
+        let mut correlations = self.correlations.write().await;
+        for corr in sync.correlations {
+            if !correlations.iter().any(|c| c.correlation_id == corr.correlation_id) {
+                correlations.push(corr);
+            }
+        }
+
+        // Update peer last sync time
+        let mut peers = self.federation_peers.write().await;
+        if let Some(peer) = peers.get_mut(&sync.source_peer) {
+            peer.last_sync = Some(chrono::Utc::now().timestamp());
+            peer.status = PeerStatus::Active;
+        }
+    }
+
+    /// Prepare federation sync payload for outgoing sync
+    pub async fn prepare_federation_sync(&self, peer_id: &str) -> FederationSync {
+        let paths = self.paths.read().await;
+        let correlations = self.correlations.read().await;
+
+        FederationSync {
+            source_peer: peer_id.to_string(),
+            paths: paths.values().cloned().collect(),
+            correlations: correlations.clone(),
+            timestamp: chrono::Utc::now().timestamp(),
         }
     }
 
@@ -246,6 +333,31 @@ async fn get_stats(State(state): State<Arc<AggregatorState>>) -> Json<GlobalStat
     Json(state.get_stats().await)
 }
 
+/// API: Register federation peer
+async fn register_peer(
+    State(state): State<Arc<AggregatorState>>,
+    Json(peer): Json<FederationPeer>,
+) -> StatusCode {
+    state.register_peer(peer).await;
+    StatusCode::CREATED
+}
+
+/// API: Get federation peers
+async fn get_peers(
+    State(state): State<Arc<AggregatorState>>,
+) -> Json<Vec<FederationPeer>> {
+    Json(state.get_peers().await)
+}
+
+/// API: Receive federation sync
+async fn receive_federation_sync(
+    State(state): State<Arc<AggregatorState>>,
+    Json(sync): Json<FederationSync>,
+) -> StatusCode {
+    state.receive_federation_sync(sync).await;
+    StatusCode::OK
+}
+
 /// API: Health check
 async fn health() -> &'static str {
     "OK"
@@ -262,6 +374,8 @@ async fn main() {
         .route("/api/paths", post(receive_path))
         .route("/api/correlations", get(get_correlations))
         .route("/api/stats", get(get_stats))
+        .route("/api/federation/peers", get(get_peers).post(register_peer))
+        .route("/api/federation/sync", post(receive_federation_sync))
         .layer(CorsLayer::permissive())
         .with_state(state);
 

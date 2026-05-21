@@ -2,21 +2,36 @@
 //! Serves HTML/JS for viewing attack paths and alerts
 
 use axum::{
-    extract::State,
+    extract::{
+        ws::{Message, WebSocket, WebSocketUpgrade},
+        State,
+    },
     response::{Html, Json},
     routing::get,
     Router,
 };
+use futures::{SinkExt, StreamExt};
 use serde::Serialize;
 use std::sync::Arc;
-use tokio::sync::RwLock;
+use tokio::sync::{broadcast, RwLock};
 
 use crate::runtime_attack_graph_v2::{AttackPathSummary, RuntimeAttackGraph};
+
+/// Event broadcast for WebSocket clients
+pub type EventBroadcast = broadcast::Sender<DashboardEvent>;
+
+#[derive(Debug, Clone, Serialize)]
+pub struct DashboardEvent {
+    pub event_type: String,
+    pub data: serde_json::Value,
+    pub timestamp: chrono::DateTime<chrono::Utc>,
+}
 
 /// Dashboard state
 #[derive(Clone)]
 pub struct DashboardState {
     pub attack_graph: Arc<RwLock<RuntimeAttackGraph>>,
+    pub event_tx: EventBroadcast,
 }
 
 /// Dashboard routes
@@ -25,6 +40,7 @@ pub fn routes(state: DashboardState) -> Router {
         .route("/", get(index_handler))
         .route("/api/paths", get(paths_handler))
         .route("/api/stats", get(stats_handler))
+        .route("/ws", get(ws_handler))
         .with_state(state)
 }
 
@@ -35,8 +51,8 @@ async fn index_handler() -> Html<&'static str> {
 
 /// Get current attack paths
 async fn paths_handler(State(state): State<DashboardState>) -> Json<Vec<AttackPathSummary>> {
-    let graph = state.attack_graph.read().await;
-    let paths: Vec<AttackPathSummary> = Vec::new(); // TODO: implement get_paths()
+    let mut graph = state.attack_graph.write().await;
+    let paths = graph.get_top_k_paths(&[]);
     Json(paths)
 }
 
@@ -59,6 +75,50 @@ pub struct DashboardStats {
     pub high_confidence_paths: u64,
     pub avg_confidence: f32,
     pub burst_events_collapsed: u64,
+}
+
+/// WebSocket handler for real-time updates
+async fn ws_handler(
+    ws: WebSocketUpgrade,
+    State(state): State<DashboardState>,
+) -> axum::response::Response {
+    ws.on_upgrade(move |socket| handle_ws(socket, state))
+}
+
+async fn handle_ws(socket: WebSocket, state: DashboardState) {
+    let (mut sender, mut receiver) = socket.split();
+    let mut rx = state.event_tx.subscribe();
+
+    // Spawn task to forward events to client
+    let mut send_task = tokio::spawn(async move {
+        while let Ok(event) = rx.recv().await {
+            if let Ok(data) = serde_json::to_string(&event) {
+                if sender.send(Message::Text(data.into())).await.is_err() {
+                    break;
+                }
+            }
+        }
+    });
+
+    // Handle incoming messages (ping/pong, close)
+    let mut recv_task = tokio::spawn(async move {
+        while let Some(Ok(msg)) = receiver.next().await {
+            match msg {
+                Message::Close(_) => break,
+                Message::Ping(data) => {
+                    // Pong is handled automatically by axum
+                    let _ = data;
+                }
+                _ => {}
+            }
+        }
+    });
+
+    // Wait for either task to finish
+    tokio::select! {
+        _ = &mut send_task => recv_task.abort(),
+        _ = &mut recv_task => send_task.abort(),
+    }
 }
 
 /// HTML dashboard with embedded JavaScript

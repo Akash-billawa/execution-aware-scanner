@@ -12,16 +12,24 @@
     clippy::field_reassign_with_default
 )]
 
+mod anomaly_detector;
+mod api;
 mod attack_graph;
+mod audit_trail;
 mod cgroup;
+mod cloud;
 mod config;
 mod enforcement;
 mod error;
 mod execution_proof;
 mod experiment;
+mod exploit_simulator;
 mod intel;
 mod k8s;
 mod metrics;
+mod oci_scanner;
+mod policy_engine;
+mod predictive_risk;
 mod reliability;
 mod remediator;
 mod risk_engine;
@@ -31,6 +39,8 @@ mod runtime_correlation;
 mod runtime_mapper;
 mod safe_enforcement;
 mod sbom;
+mod sla_tracker;
+mod slack_commands;
 mod state;
 mod streaming_engine;
 mod validation;
@@ -170,6 +180,9 @@ struct AppState {
     event_stats: Arc<Mutex<event_consumer::ConsumerStats>>,
     #[cfg(not(all(feature = "ebpf", target_os = "linux")))]
     event_stats: Arc<Mutex<ConsumerStats>>,
+    finding_store: Arc<tokio::sync::RwLock<state::FindingStore>>,
+    policy_engine: Arc<tokio::sync::RwLock<policy_engine::PolicyEngine>>,
+    scan_trigger: tokio::sync::mpsc::Sender<api::models::TriggerScanRequest>,
 }
 
 #[cfg(unix)]
@@ -213,9 +226,18 @@ async fn main() -> Result<(), ScannerError> {
     #[cfg(not(all(feature = "ebpf", target_os = "linux")))]
     let event_stats = Arc::new(Mutex::new(ConsumerStats::default()));
 
+    // Initialize API state
+    let finding_store = Arc::new(tokio::sync::RwLock::new(state::FindingStore::new()));
+    let policy_engine = Arc::new(tokio::sync::RwLock::new(policy_engine::PolicyEngine::new()));
+    let (scan_trigger, _scan_rx) =
+        tokio::sync::mpsc::channel::<api::models::TriggerScanRequest>(32);
+
     let state = AppState {
         metrics: metrics.clone(),
         event_stats: event_stats.clone(),
+        finding_store: finding_store.clone(),
+        policy_engine: policy_engine.clone(),
+        scan_trigger: scan_trigger.clone(),
     };
 
     // Start metrics server
@@ -778,12 +800,16 @@ async fn run_analysis_pipeline(
 }
 
 async fn run_metrics_server(bind_addr: String, state: AppState) -> Result<(), ScannerError> {
+    let api_routes = api::routes(state.clone());
+
     let app = Router::new()
         .route("/metrics", get(metrics_handler))
         .route("/metrics/kernel", get(kernel_metrics_handler))
         .route("/health", get(health_handler))
         .route("/ready", get(ready_handler))
+        .merge(api_routes)
         .with_state(state);
+
     let listener = TcpListener::bind(&bind_addr).await?;
     axum::serve(listener, app)
         .await

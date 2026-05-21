@@ -1,0 +1,55 @@
+# Load Test Configuration for Execution-Aware Scanner
+# Target: 10K containers, 100K events/second
+
+scanner:
+  url: "http://localhost:9898"
+  health_endpoint: "/health"
+  metrics_endpoint: "/metrics"
+  api_endpoint: "/api/v1"
+
+# Test parameters
+test:
+  duration_minutes: 5
+  ramp_up_seconds: 30
+  ramp_down_seconds: 30
+
+# Virtual users
+vu_stages:
+  - duration: "30s"
+    target: 10
+  - duration: "2m"
+    target: 10
+  - duration: "30s"
+    target: 50
+  - duration: "5m"
+    target: 50
+  - duration: "30s"
+    target: 0
+
+# Thresholds
+thresholds:
+  http_req_duration_p95_ms: 500
+  http_req_duration_p99_ms: 1000
+  error_rate_max: 0.1
+  health_latency_p95_ms: 100
+  metrics_latency_p95_ms: 200
+
+# Container simulation
+simulation:
+  num_containers: 10000
+  events_per_second_per_container: 10
+  total_events_per_second: 100000
+
+# Expected results
+expected:
+  max_memory_mb: 2048
+  max_cpu_percent: 80
+  max_drop_rate_percent: 1
+  min_throughput_events_per_second: 90000
+
+# CI integration
+ci:
+  enabled: false
+  cluster_type: "kind"
+  nodes: 3
+  scanner_replicas: 3

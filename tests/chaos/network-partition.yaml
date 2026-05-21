@@ -1,0 +1,23 @@
+apiVersion: chaos-mesh.org/v1alpha1
+kind: NetworkChaos
+metadata:
+  name: scanner-network-partition
+  namespace: scanner-system
+spec:
+  action: partition
+  mode: one
+  selector:
+    namespaces:
+      - scanner-system
+    labelSelectors:
+      app.kubernetes.io/name: execution-aware-scanner
+      app.kubernetes.io/component: scanner
+  direction: to
+  target:
+    selector:
+      namespaces:
+        - default
+    mode: all
+  duration: '60s'
+  scheduler:
+    cron: '@every 10m'
