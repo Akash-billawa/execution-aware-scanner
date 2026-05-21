@@ -39,7 +39,10 @@ RUN if [ "$TARGETARCH" = "arm64" ]; then \
             libelf-dev:arm64 \
             zlib1g-dev:arm64 && \
         rm -rf /var/lib/apt/lists/* && \
-        rustup target add aarch64-unknown-linux-gnu; \
+        rustup target add aarch64-unknown-linux-gnu && \
+        mkdir -p /src/.cargo && \
+        echo '[target.aarch64-unknown-linux-gnu]' > /src/.cargo/config.toml && \
+        echo 'linker = "aarch64-linux-gnu-gcc"' >> /src/.cargo/config.toml; \
     fi
 
 # Build eBPF programs
@@ -58,6 +61,8 @@ RUN ls -la /src/target/bpfel-unknown-none/release/ && \
 # ARM64: build without ebpf feature (eBPF programs are loaded at runtime from the separate .so)
 # amd64: build with ebpf feature (native linking)
 RUN if [ "$TARGETARCH" = "arm64" ]; then \
+        # Remove eBPF artifacts that would confuse the ARM64 linker
+        rm -f /src/target/bpfel-unknown-none/release/libscanner_ebpf.so && \
         cargo build --release -p scanner-agent --no-default-features \
             --target aarch64-unknown-linux-gnu && \
         BINARY_PATH=/src/target/aarch64-unknown-linux-gnu/release/scanner-agent; \
