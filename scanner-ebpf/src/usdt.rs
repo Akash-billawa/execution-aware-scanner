@@ -18,7 +18,7 @@ use aya_ebpf::{
 use crate::events::{EventKind, SecurityEvent, SECURITY_EVENTS};
 
 /// Helper to create a base security event
-fn create_base_event(kind: EventKind, ctx: &ProbeContext) -> SecurityEvent {
+fn create_base_event(kind: EventKind) -> SecurityEvent {
     let mut event = SecurityEvent {
         ts: unsafe { bpf_ktime_get_ns() },
         kind,
@@ -32,20 +32,17 @@ fn create_base_event(kind: EventKind, ctx: &ProbeContext) -> SecurityEvent {
         comm: [0; 16],
     };
 
-    let _ = bpf_get_current_comm(&mut event.comm);
-    event
-}
-
-/// Helper to emit event to ring buffer
-fn emit_event(event: &SecurityEvent) {
-    unsafe {
-        SECURITY_EVENTS.output(event, 0);
+    if let Ok(name) = bpf_get_current_comm() {
+        let len = name.len().min(16);
+        event.comm[..len].copy_from_slice(&name[..len]);
     }
+
+    event
 }
 
 /// Helper to write bytes into a fixed-size byte array
 fn write_bytes(dest: &mut [u8], src: &[u8]) {
-    let len = core::mem::size_of_val(dest).min(src.len());
+    let len = dest.len().min(src.len());
     dest[..len].copy_from_slice(&src[..len]);
 }
 
@@ -62,13 +59,14 @@ pub fn probe_ssl_write(ctx: ProbeContext) -> u32 {
 }
 
 fn try_probe_ssl_write(ctx: ProbeContext) -> Result<u32, u32> {
-    let mut event = create_base_event(EventKind::Exec, &ctx);
+    let mut event = create_base_event(EventKind::Exec);
 
     // Mark this as a function trace event
     // The kind will be interpreted by user-space based on the function name
     let func_name = b"SSL_write";
-    let data = unsafe { event.data.exec.as_mut() };
-    write_bytes(&mut data.args, func_name);
+    // SAFETY: ExecData.args is at the same offset as the raw data
+    let args = unsafe { &mut event.data.exec.args };
+    write_bytes(args, func_name);
 
     // Get the length argument (arg1 = number of bytes to write)
     let len: u64 = ctx.arg(2).ok_or(0u32)?;
@@ -80,7 +78,7 @@ fn try_probe_ssl_write(ctx: ProbeContext) -> Result<u32, u32> {
         60
     };
 
-    emit_event(&event);
+    SECURITY_EVENTS.output(&event, 0);
     Ok(0)
 }
 
@@ -95,14 +93,14 @@ pub fn probe_ssl_read(ctx: ProbeContext) -> u32 {
     }
 }
 
-fn try_probe_ssl_read(ctx: ProbeContext) -> Result<u32, u32> {
-    let mut event = create_base_event(EventKind::Exec, &ctx);
+fn try_probe_ssl_read(_ctx: ProbeContext) -> Result<u32, u32> {
+    let mut event = create_base_event(EventKind::Exec);
 
     let func_name = b"SSL_read";
-    let data = unsafe { event.data.exec.as_mut() };
-    write_bytes(&mut data.args, func_name);
+    let args = unsafe { &mut event.data.exec.args };
+    write_bytes(args, func_name);
 
-    emit_event(&event);
+    SECURITY_EVENTS.output(&event, 0);
     Ok(0)
 }
 
@@ -126,11 +124,11 @@ fn try_probe_malloc(ctx: ProbeContext) -> Result<u32, u32> {
         return Ok(0);
     }
 
-    let mut event = create_base_event(EventKind::Exec, &ctx);
+    let mut event = create_base_event(EventKind::Exec);
 
     let func_name = b"malloc";
-    let data = unsafe { event.data.exec.as_mut() };
-    write_bytes(&mut data.args, func_name);
+    let args = unsafe { &mut event.data.exec.args };
+    write_bytes(args, func_name);
 
     event.confidence = if size > 100 * 1024 * 1024 {
         95 // > 100MB is very suspicious
@@ -140,7 +138,7 @@ fn try_probe_malloc(ctx: ProbeContext) -> Result<u32, u32> {
         70
     };
 
-    emit_event(&event);
+    SECURITY_EVENTS.output(&event, 0);
     Ok(0)
 }
 
@@ -156,16 +154,16 @@ pub fn probe_curl_easy_perform(ctx: ProbeContext) -> u32 {
     }
 }
 
-fn try_probe_curl_easy_perform(ctx: ProbeContext) -> Result<u32, u32> {
-    let mut event = create_base_event(EventKind::Exec, &ctx);
+fn try_probe_curl_easy_perform(_ctx: ProbeContext) -> Result<u32, u32> {
+    let mut event = create_base_event(EventKind::Exec);
 
     let func_name = b"curl_easy_perform";
-    let data = unsafe { event.data.exec.as_mut() };
-    write_bytes(&mut data.args, func_name);
+    let args = unsafe { &mut event.data.exec.args };
+    write_bytes(args, func_name);
 
     // curl usage from a container is noteworthy
     event.confidence = 65;
 
-    emit_event(&event);
+    SECURITY_EVENTS.output(&event, 0);
     Ok(0)
 }
