@@ -3,10 +3,11 @@
 **From 10,000 CVEs to 10 critical findings by ranking what is actually active at runtime.**
 
 [![CI](https://github.com/Akash-billawa/execution-aware-scanner/actions/workflows/ci.yaml/badge.svg)](https://github.com/Akash-billawa/execution-aware-scanner/actions/workflows/ci.yaml)
-[![Docker](https://img.shields.io/docker/pulls/ghcr.io/akash-billawa/execution-aware-scanner)](https://ghcr.io/akash-billawa/execution-aware-scanner)
+[![GHCR](https://img.shields.io/badge/GHCR-Published-blue)](https://github.com/akash-billawa/execution-aware-scanner/pkgs/container/execution-aware-scanner)
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
-[![Rust](https://img.shields.io/badge/rust-1.70%2B-orange.svg)](https://www.rust-lang.org)
-[![Release](https://img.shields.io/github/v/release/Akash-billawa/execution-aware-scanner)](https://github.com/Akash-billawa/execution-aware-scanner/releases)
+[![Rust](https://img.shields.io/badge/rust-1.88+-orange.svg)](https://www.rust-lang.org)
+[![Platform](https://img.shields.io/badge/platform-linux-lightgrey)](https://github.com/Akash-billawa/execution-aware-scanner)
+[![eBPF](https://img.shields.io/badge/kernel-eBPF-red)](https://ebpf.io)
 
 > Linux is required for eBPF runtime tracing.
 >
