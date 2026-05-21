@@ -68,7 +68,7 @@ RUN if [ "$TARGETARCH" = "arm64" ]; then \
 
 # ── Stage 2: Runtime ─────────────────────────────────────────────────────────
 
-FROM --platform=$TARGETPLATFORM debian:bookworm-slim
+FROM debian:bookworm-slim
 
 RUN apt-get update \
     && apt-get install -y --no-install-recommends ca-certificates libelf1 curl \
