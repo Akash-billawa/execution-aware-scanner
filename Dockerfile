@@ -54,10 +54,11 @@ RUN cargo +nightly build \
 RUN ls -la /src/target/bpfel-unknown-none/release/ && \
     test -f /src/target/bpfel-unknown-none/release/libscanner_ebpf.so
 
-# Build the agent with eBPF support
-# Cross-compile for ARM64 when TARGETARCH is arm64
+# Build the agent
+# ARM64: build without ebpf feature (eBPF programs are loaded at runtime from the separate .so)
+# amd64: build with ebpf feature (native linking)
 RUN if [ "$TARGETARCH" = "arm64" ]; then \
-        cargo build --release -p scanner-agent --features ebpf \
+        cargo build --release -p scanner-agent --no-default-features \
             --target aarch64-unknown-linux-gnu && \
         BINARY_PATH=/src/target/aarch64-unknown-linux-gnu/release/scanner-agent; \
     else \
