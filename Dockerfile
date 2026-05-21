@@ -72,6 +72,7 @@ FROM debian:bookworm-slim
 
 RUN apt-get update \
     && apt-get install -y --no-install-recommends ca-certificates libelf1 curl \
+    && apt-get upgrade -y libgnutls30 \
     && rm -rf /var/lib/apt/lists/* \
     && useradd --system --no-create-home --uid 65532 scanner
 
