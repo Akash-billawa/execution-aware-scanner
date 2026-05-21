@@ -19,14 +19,15 @@ use crate::events::{EventKind, SecurityEvent, SECURITY_EVENTS};
 
 /// Helper to create a base security event
 fn create_base_event(kind: EventKind) -> SecurityEvent {
+    let pid_tgid = bpf_get_current_pid_tgid();
     let mut event = SecurityEvent {
         ts: unsafe { bpf_ktime_get_ns() },
         kind,
-        pid: (bpf_get_current_pid_tgid() >> 32) as u32,
-        tgid: bpf_get_current_pid_tgid() as u32,
+        pid: (pid_tgid >> 32) as u32,
+        tgid: pid_tgid as u32,
         uid: 0,
         gid: 0,
-        cgroup_id: bpf_get_current_cgroup_id(),
+        cgroup_id: unsafe { bpf_get_current_cgroup_id() },
         confidence: 70, // Higher confidence for function-level traces
         data: crate::events::EventData { raw: [0; 128] },
         comm: [0; 16],
