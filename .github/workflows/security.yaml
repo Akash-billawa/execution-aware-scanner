@@ -103,7 +103,6 @@ jobs:
       - name: Run Trivy secret scanner
         uses: aquasecurity/trivy-action@master
         with:
-          image-ref: 'scanner:scan'
           scan-type: 'fs'
           scan-ref: '.'
           format: 'table'
